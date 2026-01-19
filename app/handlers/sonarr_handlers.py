@@ -24,16 +24,19 @@ MONITOR_OPTIONS = {
 MONITOR_ORDER = ["all", "future", "missing", "existing", "recent", "pilot", "first", "last", "specials", "no_specials", "none"]
 
 
-def _is_user_allowed(user_id: int) -> bool:
+def _is_user_allowed(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """Check if user is allowed to use admin commands."""
-    # Implementation would check against allowed users list
-    return True
+    allowed_users = context.bot_data.get("allowed_users", [])
+    return user_id in allowed_users
 
 
 async def show_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /show command to search for TV shows."""
-    if not _is_user_allowed(update.effective_user.id):
-        await update.message.reply_text("You don't have permission to use this command.")
+    if not update.message:
+        return
+    
+    if not _is_user_allowed(update.effective_user.id, context):
+        await update.message.reply_text("❌ You don't have permission to use this bot.")
         return
 
     if not context.args:
@@ -41,7 +44,11 @@ async def show_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     show_name = " ".join(context.args)
-    client = SonarrClient()
+    client: SonarrClient = context.bot_data.get("sonarr_client")
+    
+    if not client:
+        await update.message.reply_text("❌ Sonarr client not initialized.")
+        return
     
     try:
         shows = await client.search_series(show_name)
@@ -115,7 +122,11 @@ async def button_monitor_show(update: Update, context: ContextTypes.DEFAULT_TYPE
     show_data = context.user_data.get(data_key, {})
     title = show_data.get("title", "Unknown")
     
-    client = SonarrClient()
+    client: SonarrClient = context.bot_data.get("sonarr_client")
+    
+    if not client:
+        await query.answer("❌ Sonarr client not initialized.", show_alert=True)
+        return
     
     try:
         result = await client.add_series(
@@ -154,8 +165,11 @@ async def add_show_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 async def anime_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /anime command to search for anime."""
-    if not _is_user_allowed(update.effective_user.id):
-        await update.message.reply_text("You don't have permission to use this command.")
+    if not update.message:
+        return
+    
+    if not _is_user_allowed(update.effective_user.id, context):
+        await update.message.reply_text("❌ You don't have permission to use this bot.")
         return
 
     if not context.args:
@@ -163,7 +177,11 @@ async def anime_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     anime_name = " ".join(context.args)
-    client = SonarrClient()
+    client: SonarrClient = context.bot_data.get("sonarr_client")
+    
+    if not client:
+        await update.message.reply_text("❌ Sonarr client not initialized.")
+        return
     
     try:
         anime_shows = await client.search_series(anime_name)
@@ -237,7 +255,11 @@ async def button_monitor_anime(update: Update, context: ContextTypes.DEFAULT_TYP
     anime_data = context.user_data.get(data_key, {})
     title = anime_data.get("title", "Unknown")
     
-    client = SonarrClient()
+    client: SonarrClient = context.bot_data.get("sonarr_client")
+    
+    if not client:
+        await query.answer("❌ Sonarr client not initialized.", show_alert=True)
+        return
     
     try:
         result = await client.add_series(
@@ -276,7 +298,14 @@ async def inline_query_sonarr(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not query:
         return
     
-    client = SonarrClient()
+    # Check if user is allowed
+    if not _is_user_allowed(update.effective_user.id, context):
+        return
+    
+    client: SonarrClient = context.bot_data.get("sonarr_client")
+    
+    if not client:
+        return
     
     try:
         shows = await client.search_series(query)
