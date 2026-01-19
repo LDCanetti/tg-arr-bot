@@ -22,6 +22,21 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+async def error_handler(update, context):
+    """Log errors and continue processing updates."""
+    logger.error(f"Update {update} caused error: {context.error}")
+    if update and update.message:
+        try:
+            await update.message.reply_text("❌ An error occurred processing your request.")
+        except Exception as e:
+            logger.error(f"Failed to send error message: {e}")
+    elif update and update.callback_query:
+        try:
+            await update.callback_query.answer("❌ An error occurred.", show_alert=True)
+        except Exception as e:
+            logger.error(f"Failed to send callback error: {e}")
+
+
 def main() -> None:
     """Start the bot."""
     try:
@@ -59,6 +74,9 @@ def main() -> None:
         application.add_handler(CallbackQueryHandler(button_add_anime, pattern=r'^select_anime:'))
         application.add_handler(CallbackQueryHandler(button_monitor_anime, pattern=r'^monitor_anime_'))
         application.add_handler(InlineQueryHandler(inline_query_anime))
+        
+        # Add error handler to catch and log errors
+        application.add_error_handler(error_handler)
         
         logger.info("Bot started successfully!")
         logger.info(f"Allowed users: {settings.allowed_user_ids}")

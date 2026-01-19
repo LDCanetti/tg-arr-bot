@@ -118,7 +118,12 @@ async def button_add_movie(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     """Handle inline button click to add movie."""
     query = update.callback_query
     
-    if not query or not query.data:
+    if not query:
+        return
+    
+    if not query.data:
+        logger.warning("Received callback query without data")
+        await query.answer("❌ Invalid button data.", show_alert=True)
         return
     
     # Check if user is allowed
