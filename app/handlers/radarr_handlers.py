@@ -105,7 +105,12 @@ async def add_movie_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     result = await radarr.add_movie(tmdb_id)
     
     if result:
-        await update.message.reply_text(f"✅ Added '{title}' to Radarr!")
+        # Trigger immediate search
+        search_success = await radarr.trigger_movie_search(result.get("id"))
+        if search_success:
+            await update.message.reply_text(f"✅ Added '{title}' to Radarr and started searching!")
+        else:
+            await update.message.reply_text(f"✅ Added '{title}' to Radarr (search trigger failed)")
     else:
         await update.message.reply_text(f"❌ Failed to add '{title}' to Radarr.")
 
@@ -146,7 +151,12 @@ async def button_add_movie(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         result = await radarr.add_movie(tmdb_id, root_folder_path=folder_path)
         
         if result:
-            await query.edit_message_text(f"✅ Successfully added '{title}' to Radarr!")
+            # Trigger immediate search
+            search_success = await radarr.trigger_movie_search(result.get("id"))
+            if search_success:
+                await query.edit_message_text(f"✅ Successfully added '{title}' to Radarr and started searching!")
+            else:
+                await query.edit_message_text(f"✅ Successfully added '{title}' to Radarr (search trigger failed)")
         else:
             await query.answer(f"❌ Failed to add '{title}' to Radarr.", show_alert=True)
     

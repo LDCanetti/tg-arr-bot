@@ -100,6 +100,36 @@ class RadarrClient:
             logger.error(f"Radarr get movies failed: {e}")
             return []
     
+    async def trigger_movie_search(self, movie_id: int) -> bool:
+        """Trigger an immediate search for a specific movie.
+        
+        Args:
+            movie_id: Movie ID to search for
+            
+        Returns:
+            True if search was triggered, False on error
+        """
+        url = f"{self.base_url}/api/v3/command"
+        
+        payload = {
+            "name": "MoviesSearch",
+            "movieIds": [movie_id]
+        }
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, headers=self.headers, json=payload) as resp:
+                    if resp.status in (200, 201):
+                        logger.info(f"Triggered search for movie {movie_id}")
+                        return True
+                    else:
+                        error_text = await resp.text()
+                        logger.error(f"Radarr trigger search error: {resp.status} - {error_text}")
+                        return False
+        except Exception as e:
+            logger.error(f"Radarr trigger search failed: {e}")
+            return False
+    
     async def get_root_folders(self) -> List[Dict[str, Any]]:
         """Get available root folders.
         

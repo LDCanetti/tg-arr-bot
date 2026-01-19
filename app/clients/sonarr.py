@@ -44,7 +44,7 @@ class SonarrClient:
             return []
     
     async def add_series(self, series_id: int, title: str = "", root_folder_path: str = "/Shows", 
-                        quality_profile_id: int = 1, monitor_type: str = "all") -> Optional[Dict[str, Any]]:
+                        quality_profile_id: int = 1, monitor_seasons: str = "all") -> Optional[Dict[str, Any]]:
         """Add a TV series to Sonarr.
         
         Args:
@@ -52,21 +52,25 @@ class SonarrClient:
             title: Series title
             root_folder_path: Root folder path for the series
             quality_profile_id: Quality profile ID
-            monitor_type: Monitor type (all, future, missing, existing, pilot, unmonitored)
+            monitor_seasons: Season monitoring type (all, first, last, none)
             
         Returns:
             Response from Sonarr API or None on error
         """
         url = f"{self.base_url}/api/v3/series"
         
+        # Determine monitored status based on monitor_seasons
+        monitored = monitor_seasons != "none"
+        
         payload = {
             "tvdbId": series_id,
             "title": title,
             "rootFolderPath": root_folder_path,
             "qualityProfileId": quality_profile_id,
-            "monitored": True,
-            "monitorNewItems": "all",
+            "monitored": monitored,
+            "monitorNewItems": "all" if monitor_seasons == "all" else "none",
             "seasonFolder": True,
+            "monitorType": monitor_seasons,  # Custom field to track the option
         }
         
         try:
@@ -101,6 +105,36 @@ class SonarrClient:
         except Exception as e:
             logger.error(f"Sonarr get series failed: {e}")
             return []
+    
+    async def trigger_series_search(self, series_id: int) -> bool:
+        """Trigger an immediate search for a specific series.
+        
+        Args:
+            series_id: Series ID to search for
+            
+        Returns:
+            True if search was triggered, False on error
+        """
+        url = f"{self.base_url}/api/v3/command"
+        
+        payload = {
+            "name": "SeriesSearch",
+            "seriesId": series_id
+        }
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, headers=self.headers, json=payload) as resp:
+                    if resp.status in (200, 201):
+                        logger.info(f"Triggered search for series {series_id}")
+                        return True
+                    else:
+                        error_text = await resp.text()
+                        logger.error(f"Sonarr trigger search error: {resp.status} - {error_text}")
+                        return False
+        except Exception as e:
+            logger.error(f"Sonarr trigger search failed: {e}")
+            return False
     
     async def get_root_folders(self) -> List[Dict[str, Any]]:
         """Get available root folders.

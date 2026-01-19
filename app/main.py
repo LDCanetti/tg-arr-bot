@@ -12,7 +12,7 @@ from app.clients.sonarr import SonarrClient
 from app.clients.radarr import RadarrClient
 from app.handlers.general_handlers import start_command, help_command
 from app.handlers.radarr_handlers import movie_command, add_movie_command, button_add_movie, inline_query_radarr
-from app.handlers.sonarr_handlers import show_command, add_show_command, button_add_show, inline_query_sonarr, anime_command, inline_query_anime
+from app.handlers.sonarr_handlers import show_command, add_show_command, button_add_show, button_monitor_show, button_add_anime, button_monitor_anime, inline_query_sonarr, anime_command, inline_query_anime
 
 # Configure logging
 logging.basicConfig(
@@ -50,11 +50,14 @@ def main() -> None:
         # Sonarr handlers
         application.add_handler(CommandHandler("show", show_command))
         application.add_handler(CommandHandler("addshow", add_show_command))
-        application.add_handler(CallbackQueryHandler(button_add_show, pattern=r'^add_(show|anime):'))
+        application.add_handler(CallbackQueryHandler(button_add_show, pattern=r'^select_show:'))
+        application.add_handler(CallbackQueryHandler(button_monitor_show, pattern=r'^monitor_show_'))
         application.add_handler(InlineQueryHandler(inline_query_sonarr))
         
         # Anime handlers
         application.add_handler(CommandHandler("anime", anime_command))
+        application.add_handler(CallbackQueryHandler(button_add_anime, pattern=r'^select_anime:'))
+        application.add_handler(CallbackQueryHandler(button_monitor_anime, pattern=r'^monitor_anime_'))
         application.add_handler(InlineQueryHandler(inline_query_anime))
         
         logger.info("Bot started successfully!")
