@@ -5,7 +5,7 @@ Initializes and runs the Telegram bot with command handlers.
 
 import logging
 import sys
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, InlineQueryHandler
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, InlineQueryHandler, MessageHandler, filters
 
 from app.config.settings import settings
 from app.clients.sonarr import SonarrClient
@@ -17,7 +17,7 @@ from app.handlers.sonarr_handlers import show_command, add_show_command, button_
 # Configure logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
+    level=logging.DEBUG
 )
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,17 @@ async def error_handler(update, context):
             await update.callback_query.answer("❌ An error occurred.", show_alert=True)
         except Exception as e:
             logger.error(f"Failed to send callback error: {e}")
+
+
+async def log_update(update, context):
+    """Log all incoming updates for debugging."""
+    if update.message:
+        logger.debug(f"Received message from {update.effective_user.id} in chat {update.message.chat_id}: {update.message.text}")
+    elif update.callback_query:
+        logger.debug(f"Received callback from {update.effective_user.id}: {update.callback_query.data}")
+    elif update.inline_query:
+        logger.debug(f"Received inline query from {update.effective_user.id}: {update.inline_query.query}")
+    return False
 
 
 def main() -> None:
@@ -74,6 +85,9 @@ def main() -> None:
         application.add_handler(CallbackQueryHandler(button_add_anime, pattern=r'^select_anime:'))
         application.add_handler(CallbackQueryHandler(button_monitor_anime, pattern=r'^monitor_anime_'))
         application.add_handler(InlineQueryHandler(inline_query_anime))
+        
+        # Add debug logging handler - logs all messages before they're processed (group -1 = before other handlers)
+        application.add_handler(MessageHandler(filters.ALL, log_update), group=-1)
         
         # Add error handler to catch and log errors
         application.add_error_handler(error_handler)

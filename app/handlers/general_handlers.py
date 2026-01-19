@@ -7,7 +7,9 @@ logger = logging.getLogger(__name__)
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command."""
+    logger.info(f"start_command called from user {update.effective_user.id}")
     if not update.message:
+        logger.warning(f"start_command: No message in update")
         return
     
     user_name = update.effective_user.first_name or "User"
@@ -35,7 +37,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /help command."""
+    logger.info(f"help_command called from user {update.effective_user.id}")
     if not update.message:
+        logger.warning(f"help_command: No message in update")
         return
     
     help_message = (

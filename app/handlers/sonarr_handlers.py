@@ -32,14 +32,18 @@ def _is_user_allowed(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
 
 async def show_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /show command to search for TV shows."""
+    logger.info(f"show_command called from user {update.effective_user.id}")
     if not update.message:
+        logger.warning(f"show_command: No message in update")
         return
     
     if not _is_user_allowed(update.effective_user.id, context):
+        logger.warning(f"show_command: User {update.effective_user.id} not in allowed users")
         await update.message.reply_text("❌ You don't have permission to use this bot.")
         return
 
     if not context.args:
+        logger.info(f"show_command: No arguments provided")
         await update.message.reply_text("Please provide a show name. Usage: /show <show_name>")
         return
 
@@ -185,14 +189,18 @@ async def add_show_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 async def anime_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /anime command to search for anime."""
+    logger.info(f"anime_command called from user {update.effective_user.id}")
     if not update.message:
+        logger.warning(f"anime_command: No message in update")
         return
     
     if not _is_user_allowed(update.effective_user.id, context):
+        logger.warning(f"anime_command: User {update.effective_user.id} not in allowed users")
         await update.message.reply_text("❌ You don't have permission to use this bot.")
         return
 
     if not context.args:
+        logger.info(f"anime_command: No arguments provided")
         await update.message.reply_text("Please provide an anime name. Usage: /anime <anime_name>")
         return
 

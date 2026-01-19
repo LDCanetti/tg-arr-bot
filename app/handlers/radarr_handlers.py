@@ -8,16 +8,20 @@ logger = logging.getLogger(__name__)
 
 async def movie_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /movie command to search and add movies to Radarr."""
+    logger.info(f"movie_command called from user {update.effective_user.id}")
     if not update.message:
+        logger.warning(f"movie_command: No message in update")
         return
     
     # Check if user is allowed
     if not _is_user_allowed(update.effective_user.id, context):
+        logger.warning(f"movie_command: User {update.effective_user.id} not in allowed users")
         await update.message.reply_text("❌ You don't have permission to use this bot.")
         return
     
     # Check if a query was provided
     if not context.args:
+        logger.info(f"movie_command: No arguments provided")
         await update.message.reply_text(
             "🎬 Movie search\n\n"
             "Usage: /movie <movie title>\n"
