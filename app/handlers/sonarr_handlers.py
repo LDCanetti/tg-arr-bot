@@ -40,6 +40,10 @@ async def show_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text(f"❌ No TV shows found for: {query}")
         return
     
+    # Store results in context for button callbacks
+    if not hasattr(context, 'user_data'):
+        context.user_data = {}
+    
     # Create inline buttons for search results
     keyboard = []
     for idx, show in enumerate(results[:10], 1):  # Show up to 10 results
@@ -47,9 +51,13 @@ async def show_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         year = show.get("year", "N/A")
         tvdb_id = show.get("tvdbId", "N/A")
         
+        # Store show data with a unique key
+        data_key = f"show_{tvdb_id}"
+        context.user_data[data_key] = {"tvdb_id": tvdb_id, "title": title, "folder_path": "/tv"}
+        
         # Create button with show title and year
         button_text = f"📺 {title} ({year})"
-        callback_data = json.dumps({"action": "add_show", "tvdb_id": tvdb_id, "title": title})
+        callback_data = f"add_show:{tvdb_id}"
         keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -115,15 +123,21 @@ async def button_add_show(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
     
     try:
-        callback_data = json.loads(query.data)
-        action = callback_data.get("action")
+        # Parse callback data: "add_show:tvdb_id" or "add_anime:tvdb_id"
+        parts = query.data.split(":", 1)
+        if len(parts) != 2:
+            return
+        
+        action, tvdb_id = parts
         
         if action not in ("add_show", "add_anime"):
             return
         
-        tvdb_id = callback_data.get("tvdb_id")
-        title = callback_data.get("title", "Unknown")
-        folder_path = callback_data.get("folder_path", "/tv")
+        # Get show data from stored data, or use defaults
+        data_key = f"show_{tvdb_id}"
+        show_data = context.user_data.get(data_key, {}) if context.user_data else {}
+        title = show_data.get("title", "Unknown")
+        folder_path = show_data.get("folder_path", "/anime" if action == "add_anime" else "/tv")
         
         await query.answer("⏳ Adding...")
         
@@ -178,6 +192,10 @@ async def anime_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(f"❌ No anime found for: {query}")
         return
     
+    # Store results in context for button callbacks
+    if not hasattr(context, 'user_data'):
+        context.user_data = {}
+    
     # Create inline buttons for search results
     keyboard = []
     for idx, show in enumerate(results[:10], 1):  # Show up to 10 results
@@ -185,9 +203,13 @@ async def anime_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         year = show.get("year", "N/A")
         tvdb_id = show.get("tvdbId", "N/A")
         
+        # Store anime data with a unique key
+        data_key = f"show_{tvdb_id}"
+        context.user_data[data_key] = {"tvdb_id": tvdb_id, "title": title, "folder_path": "/anime"}
+        
         # Create button with anime title and year
         button_text = f"🎌 {title} ({year})"
-        callback_data = json.dumps({"action": "add_anime", "tvdb_id": tvdb_id, "title": title, "folder_path": "/anime"})
+        callback_data = f"add_anime:{tvdb_id}"
         keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
     
     reply_markup = InlineKeyboardMarkup(keyboard)

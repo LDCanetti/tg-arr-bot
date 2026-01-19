@@ -44,13 +44,13 @@ def main() -> None:
         # Radarr handlers
         application.add_handler(CommandHandler("movie", movie_command))
         application.add_handler(CommandHandler("addmovie", add_movie_command))
-        application.add_handler(CallbackQueryHandler(button_add_movie, pattern=r'.*"action":\s*"add_movie".*'))
+        application.add_handler(CallbackQueryHandler(button_add_movie, pattern=r'^add_movie:'))
         application.add_handler(InlineQueryHandler(inline_query_radarr))
         
         # Sonarr handlers
         application.add_handler(CommandHandler("show", show_command))
         application.add_handler(CommandHandler("addshow", add_show_command))
-        application.add_handler(CallbackQueryHandler(button_add_show, pattern=r'.*"action":\s*"add_(show|anime)".*'))
+        application.add_handler(CallbackQueryHandler(button_add_show, pattern=r'^add_(show|anime):'))
         application.add_handler(InlineQueryHandler(inline_query_sonarr))
         
         # Anime handlers

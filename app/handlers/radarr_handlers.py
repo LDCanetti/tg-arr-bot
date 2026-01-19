@@ -40,6 +40,10 @@ async def movie_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(f"❌ No movies found for: {query}")
         return
     
+    # Store results in context for button callbacks
+    if not hasattr(context, 'user_data'):
+        context.user_data = {}
+    
     # Create inline buttons for search results
     keyboard = []
     for idx, movie in enumerate(results[:10], 1):  # Show up to 10 results
@@ -47,9 +51,13 @@ async def movie_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         year = movie.get("year", "N/A")
         tmdb_id = movie.get("tmdbId", "N/A")
         
-        # Create button with movie title and year
+        # Store movie data with a unique key
+        data_key = f"movie_{tmdb_id}"
+        context.user_data[data_key] = {"tmdb_id": tmdb_id, "title": title}
+        
+        # Create button with movie title and year - just store the tmdb_id as callback data
         button_text = f"📽️ {title} ({year})"
-        callback_data = json.dumps({"action": "add_movie", "tmdb_id": tmdb_id, "title": title})
+        callback_data = f"add_movie:{tmdb_id}"
         keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -115,9 +123,15 @@ async def button_add_movie(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
     
     try:
-        callback_data = json.loads(query.data)
-        tmdb_id = callback_data.get("tmdb_id")
-        title = callback_data.get("title", "Unknown")
+        # Parse callback data: "add_movie:tmdb_id"
+        if not query.data.startswith("add_movie:"):
+            return
+        
+        tmdb_id = query.data.split(":", 1)[1]
+        
+        # Get title from stored data, or use a generic message
+        data_key = f"movie_{tmdb_id}"
+        title = context.user_data.get(data_key, {}).get("title", "Unknown") if context.user_data else "Unknown"
         
         # Acknowledge button press
         await query.answer("⏳ Adding movie...")
