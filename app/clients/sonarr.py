@@ -45,14 +45,14 @@ class SonarrClient:
     
     async def add_series(self, series_id: int, title: str = "", root_folder_path: str = "/Shows", 
                         quality_profile_id: int = 1, monitor_seasons: str = "all") -> Optional[Dict[str, Any]]:
-        """Add a TV series to Sonarr.
+        """Add a TV series to Sonarr with season monitoring.
         
         Args:
             series_id: TheTVDB series ID
             title: Series title
             root_folder_path: Root folder path for the series
             quality_profile_id: Quality profile ID
-            monitor_seasons: Season monitoring type (all, first, last, none)
+            monitor_seasons: Season monitoring type (all, first, last, none, future, missing, existing, recent, pilot)
             
         Returns:
             Response from Sonarr API or None on error
@@ -62,16 +62,63 @@ class SonarrClient:
         # Determine monitored status based on monitor_seasons
         monitored = monitor_seasons != "none"
         
+        # Search for series to get season information
+        search_url = f"{self.base_url}/api/v3/series/lookup"
+        search_params = {"term": f"tvdb:{series_id}"}
+        
+        seasons = []
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(search_url, headers=self.headers, params=search_params) as resp:
+                    if resp.status == 200:
+                        search_results = await resp.json()
+                        if search_results:
+                            series_info = search_results[0]
+                            seasons = series_info.get("seasons", [])
+        except Exception as e:
+            logger.warning(f"Failed to get season info during add_series: {e}")
+            # Continue anyway with empty seasons list
+        
+        # Build seasons array based on monitor_seasons preference
+        monitored_seasons = []
+        if seasons:
+            if monitor_seasons == "all":
+                monitored_seasons = [{"seasonNumber": s.get("seasonNumber", 0), "monitored": True} for s in seasons]
+            elif monitor_seasons == "none":
+                monitored_seasons = [{"seasonNumber": s.get("seasonNumber", 0), "monitored": False} for s in seasons]
+            elif monitor_seasons == "first":
+                # Monitor only first season
+                for s in seasons:
+                    season_num = s.get("seasonNumber", 0)
+                    monitored_seasons.append({"seasonNumber": season_num, "monitored": season_num == 1})
+            elif monitor_seasons == "last":
+                # Monitor only last season
+                max_season = max([s.get("seasonNumber", 0) for s in seasons]) if seasons else 0
+                for s in seasons:
+                    season_num = s.get("seasonNumber", 0)
+                    monitored_seasons.append({"seasonNumber": season_num, "monitored": season_num == max_season})
+            elif monitor_seasons == "pilot":
+                # Monitor only season 1
+                for s in seasons:
+                    season_num = s.get("seasonNumber", 0)
+                    monitored_seasons.append({"seasonNumber": season_num, "monitored": season_num == 1})
+            else:
+                # For other types (future, missing, existing, recent), monitor all
+                monitored_seasons = [{"seasonNumber": s.get("seasonNumber", 0), "monitored": True} for s in seasons]
+        
         payload = {
             "tvdbId": series_id,
             "title": title,
             "rootFolderPath": root_folder_path,
             "qualityProfileId": quality_profile_id,
             "monitored": monitored,
-            "monitorNewItems": "all" if monitor_seasons == "all" else "none",
+            "monitorNewItems": "all",
             "seasonFolder": True,
-            "monitorType": monitor_seasons,  # Custom field to track the option
         }
+        
+        # Add seasons array if we have season info
+        if monitored_seasons:
+            payload["seasons"] = monitored_seasons
         
         try:
             async with aiohttp.ClientSession() as session:

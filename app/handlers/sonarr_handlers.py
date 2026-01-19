@@ -158,6 +158,8 @@ async def button_monitor_show(update: Update, context: ContextTypes.DEFAULT_TYPE
             monitor_seasons=monitor_type
         )
         
+        logger.info(f"button_monitor_show: Added series {tvdb_id} ({title}) with monitoring type: {monitor_type}")
+        
         if result:
             # Trigger immediate search
             search_success = await client.trigger_series_search(result.get("id"))
@@ -314,6 +316,8 @@ async def button_monitor_anime(update: Update, context: ContextTypes.DEFAULT_TYP
             quality_profile_id=1,
             monitor_seasons=monitor_type
         )
+        
+        logger.info(f"button_monitor_anime: Added anime {tvdb_id} ({title}) with monitoring type: {monitor_type}")
         
         if result:
             # Trigger immediate search
