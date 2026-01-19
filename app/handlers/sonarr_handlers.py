@@ -102,7 +102,7 @@ async def add_show_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     title = show.get("title", "Unknown")
     tvdb_id = show.get("tvdbId")
     
-    result = await sonarr.add_series(tvdb_id)
+    result = await sonarr.add_series(tvdb_id, title=title)
     
     if result:
         await update.message.reply_text(f"✅ Added '{title}' to Sonarr!")
@@ -146,7 +146,7 @@ async def button_add_show(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await query.answer("❌ Sonarr client not initialized.", show_alert=True)
             return
         
-        result = await sonarr.add_series(tvdb_id, root_folder_path=folder_path)
+        result = await sonarr.add_series(tvdb_id, title=title, root_folder_path=folder_path)
         
         if result:
             folder_label = "Anime" if action == "add_anime" else "Shows"

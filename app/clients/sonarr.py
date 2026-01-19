@@ -43,12 +43,13 @@ class SonarrClient:
             logger.error(f"Sonarr search failed: {e}")
             return []
     
-    async def add_series(self, series_id: int, root_folder_path: str = "/Shows", 
+    async def add_series(self, series_id: int, title: str = "", root_folder_path: str = "/Shows", 
                         quality_profile_id: int = 1, monitor_type: str = "all") -> Optional[Dict[str, Any]]:
         """Add a TV series to Sonarr.
         
         Args:
             series_id: TheTVDB series ID
+            title: Series title
             root_folder_path: Root folder path for the series
             quality_profile_id: Quality profile ID
             monitor_type: Monitor type (all, future, missing, existing, pilot, unmonitored)
@@ -60,7 +61,7 @@ class SonarrClient:
         
         payload = {
             "tvdbId": series_id,
-            "title": "",  # Title will be filled by Sonarr
+            "title": title,
             "rootFolderPath": root_folder_path,
             "qualityProfileId": quality_profile_id,
             "monitored": True,
