@@ -141,9 +141,9 @@ async def button_add_movie(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         radarr: RadarrClient = context.bot_data.get("radarr_client")
         if not radarr:
             await query.answer("❌ Radarr client not initialized.", show_alert=True)
-            return, root_folder_path=folder_path
+            return
         
-        result = await radarr.add_movie(tmdb_id)
+        result = await radarr.add_movie(tmdb_id, root_folder_path=folder_path)
         
         if result:
             await query.edit_message_text(f"✅ Successfully added '{title}' to Radarr!")
