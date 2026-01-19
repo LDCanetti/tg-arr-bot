@@ -1,5 +1,4 @@
 import logging
-import json
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputTextMessageContent
 from telegram.ext import ContextTypes
 from app.clients.radarr import RadarrClient
@@ -211,9 +210,13 @@ async def inline_query_radarr(update: Update, context: ContextTypes.DEFAULT_TYPE
             tmdb_id = movie.get("tmdbId", "N/A")
             overview = movie.get("overview", "")[:200]
             
-            # Create button to add movie
-            button_data = json.dumps({"action": "add_movie", "tmdb_id": tmdb_id, "title": title})
-            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("➕ Add Movie", callback_data=button_data)]])
+            # Store movie data in context for later retrieval (avoid JSON in callback_data)
+            data_key = f"inline_movie_{tmdb_id}"
+            context.user_data[data_key] = {"tmdb_id": tmdb_id, "title": title}
+            
+            # Create button to add movie with simple callback_data format
+            callback_data = f"add_movie:{tmdb_id}"
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("➕ Add Movie", callback_data=callback_data)]])
             
             # Format result text
             result_text = f"📽️ <b>{title}</b> ({year})\n"
