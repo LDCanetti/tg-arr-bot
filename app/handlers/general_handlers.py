@@ -23,6 +23,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "  /show <title> - Search for TV shows\n"
         "  /addshow <title> - Add a TV show\n"
         "  /myshows - List monitored shows\n\n"
+        "🎌 **Anime** (Sonarr):\n"
+        "  /anime <title> - Search for anime\n"
+        "  /myanime - List monitored anime\n\n"
         "ℹ️ **Info**:\n"
         "  /help - Show this help message\n"
     )
@@ -45,10 +48,17 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "  /show <title> - Search for TV shows\n"
         "  /addshow <title> - Add a TV show to monitor\n"
         "  /myshows - List all monitored shows\n\n"
+        "🎌 **Anime (Sonarr)**:\n"
+        "  /anime <title> - Search for anime\n"
+        "  /myanime - List all monitored anime\n\n"
+        "💡 **Inline Queries** (use in any chat):\n"
+        "  @YourBotName movie <title> - Search movies\n"
+        "  @YourBotName show <title> - Search TV shows\n"
+        "  @YourBotName anime <title> - Search anime\n\n"
         "💡 **Tips**:\n"
         "  • Use quotes for exact matches: /movie \"The Matrix\"\n"
-        "  • Search results show IMDb/TMDb IDs for verification\n"
-        "  • Only exact matches will be added to avoid duplicates\n"
+        "  • Inline queries work in any Telegram chat\n"
+        "  • Anime goes to your anime folder, shows go to your shows folder\n"
     )
     
     await update.message.reply_text(help_message, parse_mode="Markdown")

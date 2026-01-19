@@ -5,14 +5,14 @@ Initializes and runs the Telegram bot with command handlers.
 
 import logging
 import sys
-from telegram.ext import Application, CommandHandler
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, InlineQueryHandler
 
 from app.config.settings import settings
 from app.clients.sonarr import SonarrClient
 from app.clients.radarr import RadarrClient
 from app.handlers.general_handlers import start_command, help_command
-from app.handlers.radarr_handlers import movie_command, add_movie_command
-from app.handlers.sonarr_handlers import show_command, add_show_command
+from app.handlers.radarr_handlers import movie_command, add_movie_command, button_add_movie, inline_query_radarr
+from app.handlers.sonarr_handlers import show_command, add_show_command, button_add_show, inline_query_sonarr, anime_command, inline_query_anime
 
 # Configure logging
 logging.basicConfig(
@@ -44,10 +44,18 @@ def main() -> None:
         # Radarr handlers
         application.add_handler(CommandHandler("movie", movie_command))
         application.add_handler(CommandHandler("addmovie", add_movie_command))
+        application.add_handler(CallbackQueryHandler(button_add_movie, pattern=r'.*"action":\s*"add_movie".*'))
+        application.add_handler(InlineQueryHandler(inline_query_radarr))
         
         # Sonarr handlers
         application.add_handler(CommandHandler("show", show_command))
         application.add_handler(CommandHandler("addshow", add_show_command))
+        application.add_handler(CallbackQueryHandler(button_add_show, pattern=r'.*"action":\s*"add_(show|anime)".*'))
+        application.add_handler(InlineQueryHandler(inline_query_sonarr))
+        
+        # Anime handlers
+        application.add_handler(CommandHandler("anime", anime_command))
+        application.add_handler(InlineQueryHandler(inline_query_anime))
         
         logger.info("Bot started successfully!")
         logger.info(f"Allowed users: {settings.allowed_user_ids}")

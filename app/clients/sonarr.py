@@ -100,3 +100,23 @@ class SonarrClient:
         except Exception as e:
             logger.error(f"Sonarr get series failed: {e}")
             return []
+    
+    async def get_root_folders(self) -> List[Dict[str, Any]]:
+        """Get available root folders.
+        
+        Returns:
+            List of root folders with id and path
+        """
+        url = f"{self.base_url}/api/v3/rootFolder"
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=self.headers) as resp:
+                    if resp.status == 200:
+                        return await resp.json()
+                    else:
+                        logger.error(f"Sonarr get root folders error: {resp.status}")
+                        return []
+        except Exception as e:
+            logger.error(f"Sonarr get root folders failed: {e}")
+            return []

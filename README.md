@@ -22,9 +22,19 @@ A Docker containerized Telegram bot for managing your Sonarr and Radarr media li
 - `/addshow <title>` - Add a TV show to Sonarr
 - `/myshows` - List monitored shows (coming soon)
 
+### Anime (Sonarr)
+- `/anime <title>` - Search for anime
+- `/myanime` - List monitored anime (coming soon)
+
 ### General
 - `/start` - Welcome message and command overview
 - `/help` - Show all available commands
+
+### Inline Queries
+You can also search directly in any chat using inline mode:
+- `@BotName movie The Matrix` - Search and add movies
+- `@BotName show Breaking Bad` - Search and add TV shows
+- `@BotName anime Demon Slayer` - Search and add anime
 
 ## Prerequisites
 
@@ -194,14 +204,13 @@ docker-compose logs -f radarr
 
 ## Future Enhancements
 
-- [ ] List monitored movies/shows
-- [ ] Remove/unmonitor movies/shows
-- [ ] Select quality profiles and root folders
-- [ ] Season selection for TV shows
+- [ ] List monitored movies/shows/anime
+- [ ] Remove/unmonitor movies/shows/anime
 - [ ] Download status notifications
-- [ ] Inline query support
 - [ ] Movie/show details with ratings
-- [ ] Custom root folder management
+- [ ] Configurable root folders per user
+- [ ] Season selection for TV shows
+- [ ] Quality profile selection
 
 ## Contributing
 
