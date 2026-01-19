@@ -53,7 +53,7 @@ async def movie_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         
         # Store movie data with a unique key
         data_key = f"movie_{tmdb_id}"
-        context.user_data[data_key] = {"tmdb_id": tmdb_id, "title": title}
+        context.user_data[data_key] = {"tmdb_id": tmdb_id, "title": title, "folder_path": "/Movies"}
         
         # Create button with movie title and year - just store the tmdb_id as callback data
         button_text = f"📽️ {title} ({year})"
@@ -129,9 +129,11 @@ async def button_add_movie(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         
         tmdb_id = query.data.split(":", 1)[1]
         
-        # Get title from stored data, or use a generic message
+        # Get title and folder path from stored data
         data_key = f"movie_{tmdb_id}"
-        title = context.user_data.get(data_key, {}).get("title", "Unknown") if context.user_data else "Unknown"
+        movie_data = context.user_data.get(data_key, {}) if context.user_data else {}
+        title = movie_data.get("title", "Unknown")
+        folder_path = movie_data.get("folder_path", "/Movies")
         
         # Acknowledge button press
         await query.answer("⏳ Adding movie...")
@@ -139,7 +141,7 @@ async def button_add_movie(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         radarr: RadarrClient = context.bot_data.get("radarr_client")
         if not radarr:
             await query.answer("❌ Radarr client not initialized.", show_alert=True)
-            return
+            return, root_folder_path=folder_path
         
         result = await radarr.add_movie(tmdb_id)
         

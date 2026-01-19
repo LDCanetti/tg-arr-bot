@@ -53,7 +53,7 @@ async def show_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         
         # Store show data with a unique key
         data_key = f"show_{tvdb_id}"
-        context.user_data[data_key] = {"tvdb_id": tvdb_id, "title": title, "folder_path": "/tv"}
+        context.user_data[data_key] = {"tvdb_id": tvdb_id, "title": title, "folder_path": "/Shows"}
         
         # Create button with show title and year
         button_text = f"📺 {title} ({year})"
@@ -137,7 +137,7 @@ async def button_add_show(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         data_key = f"show_{tvdb_id}"
         show_data = context.user_data.get(data_key, {}) if context.user_data else {}
         title = show_data.get("title", "Unknown")
-        folder_path = show_data.get("folder_path", "/anime" if action == "add_anime" else "/tv")
+        folder_path = show_data.get("folder_path", "/Anime" if action == "add_anime" else "/Shows")
         
         await query.answer("⏳ Adding...")
         
@@ -205,7 +205,7 @@ async def anime_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         
         # Store anime data with a unique key
         data_key = f"show_{tvdb_id}"
-        context.user_data[data_key] = {"tvdb_id": tvdb_id, "title": title, "folder_path": "/anime"}
+        context.user_data[data_key] = {"tvdb_id": tvdb_id, "title": title, "folder_path": "/Anime"}
         
         # Create button with anime title and year
         button_text = f"🎌 {title} ({year})"

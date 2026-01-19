@@ -43,7 +43,7 @@ class RadarrClient:
             logger.error(f"Radarr search failed: {e}")
             return []
     
-    async def add_movie(self, tmdb_id: int, root_folder_path: str = "/movies",
+    async def add_movie(self, tmdb_id: int, root_folder_path: str = "/Movies",
                        quality_profile_id: int = 1, monitor: bool = True) -> Optional[Dict[str, Any]]:
         """Add a movie to Radarr.
         
