@@ -16,12 +16,13 @@ MONITOR_OPTIONS = {
     "pilot": "🎬 Pilot Episode",
     "first": "🎞️ First Season",
     "last": "⏱️ Last Season",
+    "new_only": "✨ Only New Episodes",
     "specials": "🎪 Monitor Specials",
     "no_specials": "🚫 Unmonitor Specials",
     "none": "⛔ None"
 }
 
-MONITOR_ORDER = ["all", "future", "missing", "existing", "recent", "pilot", "first", "last", "specials", "no_specials", "none"]
+MONITOR_ORDER = ["all", "future", "new_only", "missing", "existing", "recent", "pilot", "first", "last", "specials", "no_specials", "none"]
 
 
 def _is_user_allowed(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:

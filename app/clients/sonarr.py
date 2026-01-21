@@ -59,52 +59,28 @@ class SonarrClient:
         """
         url = f"{self.base_url}/api/v3/series"
         
-        # Determine monitored status based on monitor_seasons
+        # Map monitor_seasons to the proper addOptions structure
+        # Sonarr uses searchForMissingEpisodes to determine what to download
+        add_options_mapping = {
+            "all": {"searchForMissingEpisodes": True},
+            "future": {"searchForMissingEpisodes": False},  # Only new episodes
+            "new_only": {"searchForMissingEpisodes": False},  # Only monitor upcoming seasons, don't search existing
+            "missing": {"searchForMissingEpisodes": True},   # Search for missing
+            "existing": {"searchForMissingEpisodes": False}, # Only existing
+            "recent": {"searchForMissingEpisodes": True},    # Recent episodes
+            "pilot": {"searchForMissingEpisodes": True},     # Pilot episode
+            "first": {"searchForMissingEpisodes": True},     # First season
+            "last": {"searchForMissingEpisodes": False},     # Last season - don't search old episodes
+            "specials": {"searchForMissingEpisodes": True},  # Specials
+            "no_specials": {"searchForMissingEpisodes": True},
+            "none": {"searchForMissingEpisodes": False}
+        }
+        
+        # Determine monitored status
         monitored = monitor_seasons != "none"
         
-        # Search for series to get season information
-        search_url = f"{self.base_url}/api/v3/series/lookup"
-        search_params = {"term": f"tvdb:{series_id}"}
-        
-        seasons = []
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(search_url, headers=self.headers, params=search_params) as resp:
-                    if resp.status == 200:
-                        search_results = await resp.json()
-                        if search_results:
-                            series_info = search_results[0]
-                            seasons = series_info.get("seasons", [])
-        except Exception as e:
-            logger.warning(f"Failed to get season info during add_series: {e}")
-            # Continue anyway with empty seasons list
-        
-        # Build seasons array based on monitor_seasons preference
-        monitored_seasons = []
-        if seasons:
-            if monitor_seasons == "all":
-                monitored_seasons = [{"seasonNumber": s.get("seasonNumber", 0), "monitored": True} for s in seasons]
-            elif monitor_seasons == "none":
-                monitored_seasons = [{"seasonNumber": s.get("seasonNumber", 0), "monitored": False} for s in seasons]
-            elif monitor_seasons == "first":
-                # Monitor only first season
-                for s in seasons:
-                    season_num = s.get("seasonNumber", 0)
-                    monitored_seasons.append({"seasonNumber": season_num, "monitored": season_num == 1})
-            elif monitor_seasons == "last":
-                # Monitor only last season
-                max_season = max([s.get("seasonNumber", 0) for s in seasons]) if seasons else 0
-                for s in seasons:
-                    season_num = s.get("seasonNumber", 0)
-                    monitored_seasons.append({"seasonNumber": season_num, "monitored": season_num == max_season})
-            elif monitor_seasons == "pilot":
-                # Monitor only season 1
-                for s in seasons:
-                    season_num = s.get("seasonNumber", 0)
-                    monitored_seasons.append({"seasonNumber": season_num, "monitored": season_num == 1})
-            else:
-                # For other types (future, missing, existing, recent), monitor all
-                monitored_seasons = [{"seasonNumber": s.get("seasonNumber", 0), "monitored": True} for s in seasons]
+        # Get add options for this monitor type
+        add_options = add_options_mapping.get(monitor_seasons, {"searchForMissingEpisodes": True})
         
         payload = {
             "tvdbId": series_id,
@@ -112,13 +88,42 @@ class SonarrClient:
             "rootFolderPath": root_folder_path,
             "qualityProfileId": quality_profile_id,
             "monitored": monitored,
-            "monitorNewItems": "all",
             "seasonFolder": True,
+            "addOptions": add_options
         }
         
-        # Add seasons array if we have season info
-        if monitored_seasons:
-            payload["seasons"] = monitored_seasons
+        # For "first" season only - we need to unmonitor other seasons after adding
+        if monitor_seasons == "first":
+            payload["seasons"] = [
+                {"seasonNumber": 1, "monitored": True},
+                {"seasonNumber": -1, "monitored": False}  # Specials unmonitored
+            ]
+        # For "last" season only - get all seasons and mark all but last as unmonitored
+        elif monitor_seasons == "last":
+            # Search for series to get season information
+            search_url = f"{self.base_url}/api/v3/series/lookup"
+            search_params = {"term": f"tvdb:{series_id}"}
+            
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(search_url, headers=self.headers, params=search_params) as resp:
+                        if resp.status == 200:
+                            search_results = await resp.json()
+                            if search_results:
+                                series_info = search_results[0]
+                                seasons = series_info.get("seasons", [])
+                                if seasons:
+                                    max_season = max([s.get("seasonNumber", 0) for s in seasons])
+                                    payload["seasons"] = [
+                                        {"seasonNumber": s.get("seasonNumber", 0), 
+                                         "monitored": s.get("seasonNumber", 0) == max_season or s.get("seasonNumber", 0) == 0}
+                                        for s in seasons
+                                    ]
+            except Exception as e:
+                logger.warning(f"Failed to get season info for 'last' option: {e}")
+                # Continue with default - Sonarr will handle it
+        elif monitor_seasons == "none":
+            payload["monitored"] = False
         
         try:
             async with aiohttp.ClientSession() as session:
