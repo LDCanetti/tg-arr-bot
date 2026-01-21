@@ -16,13 +16,12 @@ MONITOR_OPTIONS = {
     "pilot": "🎬 Pilot Episode",
     "first": "🎞️ First Season",
     "last": "⏱️ Last Season",
-    "new_only": "✨ Only New Episodes",
     "specials": "🎪 Monitor Specials",
     "no_specials": "🚫 Unmonitor Specials",
     "none": "⛔ None"
 }
 
-MONITOR_ORDER = ["all", "future", "new_only", "missing", "existing", "recent", "pilot", "first", "last", "specials", "no_specials", "none"]
+MONITOR_ORDER = ["all", "future", "missing", "existing", "recent", "pilot", "first", "last", "specials", "no_specials", "none"]
 
 
 def _is_user_allowed(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -162,12 +161,12 @@ async def button_monitor_show(update: Update, context: ContextTypes.DEFAULT_TYPE
         logger.info(f"button_monitor_show: Added series {tvdb_id} ({title}) with monitoring type: {monitor_type}")
         
         if result:
-            # Trigger immediate search
-            search_success = await client.trigger_series_search(result.get("id"))
+            # Trigger search for all monitored episodes
+            search_success = await client.trigger_monitored_search()
             monitor_label = MONITOR_OPTIONS.get(monitor_type, monitor_type)
             if search_success:
                 await query.edit_message_text(
-                    text=f"✅ Show '{title}' added with monitoring: {monitor_label}\n🔍 Started searching!"
+                    text=f"✅ Show '{title}' added with monitoring: {monitor_label}\n🔍 Started searching monitored episodes!"
                 )
             else:
                 await query.edit_message_text(
@@ -315,18 +314,19 @@ async def button_monitor_anime(update: Update, context: ContextTypes.DEFAULT_TYP
             title=title,
             root_folder_path="/Anime",
             quality_profile_id=1,
-            monitor_seasons=monitor_type
+            monitor_seasons=monitor_type,
+            series_type="Anime"
         )
         
         logger.info(f"button_monitor_anime: Added anime {tvdb_id} ({title}) with monitoring type: {monitor_type}")
         
         if result:
-            # Trigger immediate search
-            search_success = await client.trigger_series_search(result.get("id"))
+            # Trigger search for all monitored episodes
+            search_success = await client.trigger_monitored_search()
             monitor_label = MONITOR_OPTIONS.get(monitor_type, monitor_type)
             if search_success:
                 await query.edit_message_text(
-                    text=f"✅ Anime '{title}' added with monitoring: {monitor_label}\n🔍 Started searching!"
+                    text=f"✅ Anime '{title}' added with monitoring: {monitor_label}\n🔍 Started searching monitored episodes!"
                 )
             else:
                 await query.edit_message_text(

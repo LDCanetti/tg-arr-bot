@@ -44,7 +44,7 @@ class SonarrClient:
             return []
     
     async def add_series(self, series_id: int, title: str = "", root_folder_path: str = "/Shows", 
-                        quality_profile_id: int = 1, monitor_seasons: str = "all") -> Optional[Dict[str, Any]]:
+                        quality_profile_id: int = 1, monitor_seasons: str = "all", series_type: str = "Standard") -> Optional[Dict[str, Any]]:
         """Add a TV series to Sonarr with season monitoring.
         
         Args:
@@ -53,6 +53,7 @@ class SonarrClient:
             root_folder_path: Root folder path for the series
             quality_profile_id: Quality profile ID
             monitor_seasons: Season monitoring type (all, first, last, none, future, missing, existing, recent, pilot)
+            series_type: Series type - "Standard", "Daily", or "Anime" for absolute episode numbering
             
         Returns:
             Response from Sonarr API or None on error
@@ -64,7 +65,6 @@ class SonarrClient:
         add_options_mapping = {
             "all": {"searchForMissingEpisodes": True},
             "future": {"searchForMissingEpisodes": False},  # Only new episodes
-            "new_only": {"searchForMissingEpisodes": False},  # Only monitor upcoming seasons, don't search existing
             "missing": {"searchForMissingEpisodes": True},   # Search for missing
             "existing": {"searchForMissingEpisodes": False}, # Only existing
             "recent": {"searchForMissingEpisodes": True},    # Recent episodes
@@ -87,6 +87,7 @@ class SonarrClient:
             "title": title,
             "rootFolderPath": root_folder_path,
             "qualityProfileId": quality_profile_id,
+            "seriesType": series_type,
             "monitored": monitored,
             "seasonFolder": True,
             "addOptions": add_options
@@ -188,7 +189,31 @@ class SonarrClient:
             logger.error(f"Sonarr trigger search failed: {e}")
             return False
     
-    async def get_root_folders(self) -> List[Dict[str, Any]]:
+    async def trigger_monitored_search(self) -> bool:
+        """Trigger search for missing episodes in all monitored series (Search Monitored button).
+        
+        Returns:
+            True if search was triggered, False on error
+        """
+        url = f"{self.base_url}/api/v3/command"
+        
+        payload = {
+            "name": "MissingEpisodeSearch"
+        }
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, headers=self.headers, json=payload) as resp:
+                    if resp.status in (200, 201):
+                        logger.info("Triggered search for missing episodes in all monitored series")
+                        return True
+                    else:
+                        error_text = await resp.text()
+                        logger.error(f"Sonarr trigger monitored search error: {resp.status} - {error_text}")
+                        return False
+        except Exception as e:
+            logger.error(f"Sonarr trigger monitored search failed: {e}")
+            return False
         """Get available root folders.
         
         Returns:
