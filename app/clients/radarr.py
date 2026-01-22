@@ -131,7 +131,7 @@ class RadarrClient:
             return False
     
     async def trigger_monitored_search(self) -> bool:
-        """Trigger search for missing movies in all monitored entries (Search Monitored button).
+        """Trigger search for missing movies in all monitored entries (Search Missing button).
         
         Returns:
             True if search was triggered, False on error
@@ -139,7 +139,7 @@ class RadarrClient:
         url = f"{self.base_url}/api/v3/command"
         
         payload = {
-            "name": "MissingMovieSearch"
+            "name": "MissingMoviesSearch"
         }
         
         try:
@@ -155,6 +155,8 @@ class RadarrClient:
         except Exception as e:
             logger.error(f"Radarr trigger monitored search failed: {e}")
             return False
+    
+    async def get_root_folders(self) -> List[Dict[str, Any]]:
         """Get available root folders.
         
         Returns:
