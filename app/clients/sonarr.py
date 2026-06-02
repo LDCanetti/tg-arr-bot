@@ -1,6 +1,9 @@
 import aiohttp
 import logging
+from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
+
+from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +21,24 @@ class SonarrClient:
         self.base_url = base_url.rstrip('/')
         self.api_key = api_key
         self.headers = {"X-Api-Key": api_key}
-    
+        self._session: Optional[aiohttp.ClientSession] = None
+
+    def _get_session(self) -> aiohttp.ClientSession:
+        """Return a lazily-created, reused HTTP session."""
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
+        return self._session
+
+    @asynccontextmanager
+    async def _session_ctx(self):
+        """Yield the shared session without closing it on exit."""
+        yield self._get_session()
+
+    async def close(self) -> None:
+        """Close the shared HTTP session (call on shutdown)."""
+        if self._session and not self._session.closed:
+            await self._session.close()
+
     async def search_series(self, query: str) -> List[Dict[str, Any]]:
         """Search for TV series by title.
         
@@ -32,7 +52,7 @@ class SonarrClient:
         params = {"term": query}
         
         try:
-            async with aiohttp.ClientSession() as session:
+            async with self._session_ctx() as session:
                 async with session.get(url, headers=self.headers, params=params) as resp:
                     if resp.status == 200:
                         return await resp.json()
@@ -43,7 +63,7 @@ class SonarrClient:
             logger.error(f"Sonarr search failed: {e}")
             return []
     
-    async def add_series(self, series_id: int, title: str = "", root_folder_path: str = "/Shows", 
+    async def add_series(self, series_id: int, title: str = "", root_folder_path: Optional[str] = None,
                         quality_profile_id: int = 1, monitor_seasons: str = "all", series_type: str = "Standard") -> Optional[Dict[str, Any]]:
         """Add a TV series to Sonarr with season monitoring.
         
@@ -58,6 +78,9 @@ class SonarrClient:
         Returns:
             Response from Sonarr API or None on error
         """
+        if root_folder_path is None:
+            root_folder_path = settings.sonarr_root_shows
+
         url = f"{self.base_url}/api/v3/series"
         
         # Map monitor_seasons to the proper addOptions structure
@@ -106,7 +129,7 @@ class SonarrClient:
             search_params = {"term": f"tvdb:{series_id}"}
             
             try:
-                async with aiohttp.ClientSession() as session:
+                async with self._session_ctx() as session:
                     async with session.get(search_url, headers=self.headers, params=search_params) as resp:
                         if resp.status == 200:
                             search_results = await resp.json()
@@ -127,7 +150,7 @@ class SonarrClient:
             payload["monitored"] = False
         
         try:
-            async with aiohttp.ClientSession() as session:
+            async with self._session_ctx() as session:
                 async with session.post(url, headers=self.headers, json=payload) as resp:
                     if resp.status in (200, 201):
                         return await resp.json()
@@ -148,7 +171,7 @@ class SonarrClient:
         url = f"{self.base_url}/api/v3/series"
         
         try:
-            async with aiohttp.ClientSession() as session:
+            async with self._session_ctx() as session:
                 async with session.get(url, headers=self.headers) as resp:
                     if resp.status == 200:
                         return await resp.json()
@@ -176,7 +199,7 @@ class SonarrClient:
         }
         
         try:
-            async with aiohttp.ClientSession() as session:
+            async with self._session_ctx() as session:
                 async with session.post(url, headers=self.headers, json=payload) as resp:
                     if resp.status in (200, 201):
                         logger.info(f"Triggered search for series {series_id}")
@@ -202,7 +225,7 @@ class SonarrClient:
         }
         
         try:
-            async with aiohttp.ClientSession() as session:
+            async with self._session_ctx() as session:
                 async with session.post(url, headers=self.headers, json=payload) as resp:
                     if resp.status in (200, 201):
                         logger.info("Triggered search for missing episodes in all monitored series")
@@ -222,7 +245,7 @@ class SonarrClient:
         url = f"{self.base_url}/api/v3/rootFolder"
         
         try:
-            async with aiohttp.ClientSession() as session:
+            async with self._session_ctx() as session:
                 async with session.get(url, headers=self.headers) as resp:
                     if resp.status == 200:
                         return await resp.json()

@@ -3,6 +3,8 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 from app.clients.sonarr import SonarrClient
+from app.config.settings import settings
+from app.handlers.general_handlers import reply_in_chunks
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +155,7 @@ async def button_monitor_show(update: Update, context: ContextTypes.DEFAULT_TYPE
         result = await client.add_series(
             series_id=tvdb_id,
             title=title,
-            root_folder_path="/Shows",
+            root_folder_path=settings.sonarr_root_shows,
             quality_profile_id=1,
             monitor_seasons=monitor_type
         )
@@ -187,6 +189,50 @@ async def button_monitor_show(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def add_show_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /addshow command."""
     await show_command(update, context)
+
+
+async def _list_series(update: Update, context: ContextTypes.DEFAULT_TYPE, anime: bool) -> None:
+    """Shared lister for /myshows and /myanime, split by series type."""
+    if not update.message:
+        return
+
+    if not _is_user_allowed(update.effective_user.id, context):
+        await update.message.reply_text("❌ You don't have permission to use this bot.")
+        return
+
+    client: SonarrClient = context.bot_data.get("sonarr_client")
+    if not client:
+        await update.message.reply_text("❌ Sonarr client not initialized.")
+        return
+
+    series = await client.get_monitored_series()
+    filtered = [s for s in series if (s.get("seriesType", "").lower() == "anime") == anime]
+
+    emoji = "🎌" if anime else "📺"
+    label = "anime" if anime else "shows"
+    if not filtered:
+        await update.message.reply_text(f"{emoji} No {label} in your Sonarr library yet.")
+        return
+
+    filtered.sort(key=lambda s: (s.get("sortTitle") or s.get("title") or "").lower())
+    lines = [
+        f"{'✅' if s.get('statistics', {}).get('episodeFileCount', 0) else '⏳'} "
+        f"{s.get('title', 'Unknown')} ({s.get('year', 'N/A')})"
+        for s in filtered
+    ]
+    await reply_in_chunks(update.message, f"{emoji} Your {label} ({len(filtered)}):\n", lines)
+
+
+async def my_shows_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /myshows command to list standard TV shows in Sonarr."""
+    logger.info(f"my_shows_command called from user {update.effective_user.id}")
+    await _list_series(update, context, anime=False)
+
+
+async def my_anime_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /myanime command to list anime in Sonarr."""
+    logger.info(f"my_anime_command called from user {update.effective_user.id}")
+    await _list_series(update, context, anime=True)
 
 
 async def anime_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -312,7 +358,7 @@ async def button_monitor_anime(update: Update, context: ContextTypes.DEFAULT_TYP
         result = await client.add_series(
             series_id=tvdb_id,
             title=title,
-            root_folder_path="/Anime",
+            root_folder_path=settings.sonarr_root_anime,
             quality_profile_id=1,
             monitor_seasons=monitor_type,
             series_type="Anime"
@@ -344,33 +390,36 @@ async def button_monitor_anime(update: Update, context: ContextTypes.DEFAULT_TYP
             logger.error(f"Failed to send error message: {inner_e}")
 
 
-async def inline_query_sonarr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle inline queries for shows."""
-    query = update.inline_query.query
-    
-    if not query:
+async def _inline_search_series(update: Update, context: ContextTypes.DEFAULT_TYPE, prefix: str) -> None:
+    """Shared inline series search; strips the routing prefix (e.g. 'show', 'anime')."""
+    raw = update.inline_query.query if update.inline_query else ""
+    if not raw:
         return
-    
+
     # Check if user is allowed
     if not _is_user_allowed(update.effective_user.id, context):
         return
-    
+
+    # Drop the leading routing keyword that got us here (length-based, case-insensitive)
+    search_query = raw[len(prefix):].strip()
+    if len(search_query) < 2:
+        return
+
     client: SonarrClient = context.bot_data.get("sonarr_client")
-    
     if not client:
         return
-    
+
     try:
-        shows = await client.search_series(query)
-        
+        shows = await client.search_series(search_query)
+
         from telegram import InlineQueryResultArticle, InputTextMessageContent
-        
+
         results = []
         for show in shows[:5]:
             tvdb_id = show.get("tvdbId", show.get("id"))
             title = show.get("title", "Unknown")
             overview = show.get("overview", "")
-            
+
             results.append(
                 InlineQueryResultArticle(
                     id=str(tvdb_id),
@@ -381,14 +430,19 @@ async def inline_query_sonarr(update: Update, context: ContextTypes.DEFAULT_TYPE
                     description=overview[:100]
                 )
             )
-        
+
         await update.inline_query.answer(results)
-        
+
     except Exception as e:
         logger.error(f"Error in inline query: {e}")
 
 
+async def inline_query_sonarr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle inline queries for shows (@bot show <title>)."""
+    await _inline_search_series(update, context, "show")
+
+
 async def inline_query_anime(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle inline queries for anime."""
-    await inline_query_sonarr(update, context)
+    """Handle inline queries for anime (@bot anime <title>)."""
+    await _inline_search_series(update, context, "anime")
 

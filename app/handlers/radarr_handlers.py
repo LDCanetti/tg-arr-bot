@@ -2,6 +2,8 @@ import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputTextMessageContent
 from telegram.ext import ContextTypes
 from app.clients.radarr import RadarrClient
+from app.config.settings import settings
+from app.handlers.general_handlers import reply_in_chunks
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +58,7 @@ async def movie_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         
         # Store movie data with a unique key
         data_key = f"movie_{tmdb_id}"
-        context.user_data[data_key] = {"tmdb_id": tmdb_id, "title": title, "folder_path": "/Movies"}
+        context.user_data[data_key] = {"tmdb_id": tmdb_id, "title": title, "folder_path": settings.radarr_root_movies}
         
         # Create button with movie title and year - just store the tmdb_id as callback data
         button_text = f"📽️ {title} ({year})"
@@ -105,7 +107,7 @@ async def add_movie_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     title = movie.get("title", "Unknown")
     tmdb_id = movie.get("tmdbId")
     
-    result = await radarr.add_movie(tmdb_id)
+    result = await radarr.add_movie(tmdb_id, root_folder_path=settings.radarr_root_movies)
     
     if result:
         # Trigger search for all monitored movies
@@ -116,6 +118,34 @@ async def add_movie_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             await update.message.reply_text(f"✅ Added '{title}' to Radarr (search trigger failed)")
     else:
         await update.message.reply_text(f"❌ Failed to add '{title}' to Radarr.")
+
+
+async def my_movies_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /mymovies command to list movies in the Radarr library."""
+    logger.info(f"my_movies_command called from user {update.effective_user.id}")
+    if not update.message:
+        return
+
+    if not _is_user_allowed(update.effective_user.id, context):
+        await update.message.reply_text("❌ You don't have permission to use this bot.")
+        return
+
+    radarr: RadarrClient = context.bot_data.get("radarr_client")
+    if not radarr:
+        await update.message.reply_text("❌ Radarr client not initialized.")
+        return
+
+    movies = await radarr.get_monitored_movies()
+    if not movies:
+        await update.message.reply_text("🎬 No movies in your Radarr library yet.")
+        return
+
+    movies.sort(key=lambda m: (m.get("sortTitle") or m.get("title") or "").lower())
+    lines = [
+        f"{'✅' if m.get('hasFile') else '⏳'} {m.get('title', 'Unknown')} ({m.get('year', 'N/A')})"
+        for m in movies
+    ]
+    await reply_in_chunks(update.message, f"🎬 Your movies ({len(movies)}):\n", lines)
 
 
 async def button_add_movie(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -146,7 +176,7 @@ async def button_add_movie(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         data_key = f"movie_{tmdb_id}"
         movie_data = context.user_data.get(data_key, {}) if context.user_data else {}
         title = movie_data.get("title", "Unknown")
-        folder_path = movie_data.get("folder_path", "/Movies")
+        folder_path = movie_data.get("folder_path", settings.radarr_root_movies)
         
         # Acknowledge button press
         await query.answer("⏳ Adding movie...")

@@ -1,6 +1,9 @@
 import aiohttp
 import logging
+from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
+
+from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +21,24 @@ class RadarrClient:
         self.base_url = base_url.rstrip('/')
         self.api_key = api_key
         self.headers = {"X-Api-Key": api_key}
-    
+        self._session: Optional[aiohttp.ClientSession] = None
+
+    def _get_session(self) -> aiohttp.ClientSession:
+        """Return a lazily-created, reused HTTP session."""
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
+        return self._session
+
+    @asynccontextmanager
+    async def _session_ctx(self):
+        """Yield the shared session without closing it on exit."""
+        yield self._get_session()
+
+    async def close(self) -> None:
+        """Close the shared HTTP session (call on shutdown)."""
+        if self._session and not self._session.closed:
+            await self._session.close()
+
     async def search_movies(self, query: str) -> List[Dict[str, Any]]:
         """Search for movies by title.
         
@@ -32,7 +52,7 @@ class RadarrClient:
         params = {"term": query}
         
         try:
-            async with aiohttp.ClientSession() as session:
+            async with self._session_ctx() as session:
                 async with session.get(url, headers=self.headers, params=params) as resp:
                     if resp.status == 200:
                         return await resp.json()
@@ -43,7 +63,7 @@ class RadarrClient:
             logger.error(f"Radarr search failed: {e}")
             return []
     
-    async def add_movie(self, tmdb_id: int, root_folder_path: str = "/Movies",
+    async def add_movie(self, tmdb_id: int, root_folder_path: Optional[str] = None,
                        quality_profile_id: int = 1, monitor: bool = True) -> Optional[Dict[str, Any]]:
         """Add a movie to Radarr.
         
@@ -56,6 +76,9 @@ class RadarrClient:
         Returns:
             Response from Radarr API or None on error
         """
+        if root_folder_path is None:
+            root_folder_path = settings.radarr_root_movies
+
         url = f"{self.base_url}/api/v3/movie"
         
         payload = {
@@ -68,7 +91,7 @@ class RadarrClient:
         }
         
         try:
-            async with aiohttp.ClientSession() as session:
+            async with self._session_ctx() as session:
                 async with session.post(url, headers=self.headers, json=payload) as resp:
                     if resp.status in (200, 201):
                         return await resp.json()
@@ -89,7 +112,7 @@ class RadarrClient:
         url = f"{self.base_url}/api/v3/movie"
         
         try:
-            async with aiohttp.ClientSession() as session:
+            async with self._session_ctx() as session:
                 async with session.get(url, headers=self.headers) as resp:
                     if resp.status == 200:
                         return await resp.json()
@@ -117,7 +140,7 @@ class RadarrClient:
         }
         
         try:
-            async with aiohttp.ClientSession() as session:
+            async with self._session_ctx() as session:
                 async with session.post(url, headers=self.headers, json=payload) as resp:
                     if resp.status in (200, 201):
                         logger.info(f"Triggered search for movie {movie_id}")
@@ -143,7 +166,7 @@ class RadarrClient:
         }
         
         try:
-            async with aiohttp.ClientSession() as session:
+            async with self._session_ctx() as session:
                 async with session.post(url, headers=self.headers, json=payload) as resp:
                     if resp.status in (200, 201):
                         logger.info("Triggered search for missing movies in all monitored entries")
@@ -165,7 +188,7 @@ class RadarrClient:
         url = f"{self.base_url}/api/v3/rootFolder"
         
         try:
-            async with aiohttp.ClientSession() as session:
+            async with self._session_ctx() as session:
                 async with session.get(url, headers=self.headers) as resp:
                     if resp.status == 200:
                         return await resp.json()

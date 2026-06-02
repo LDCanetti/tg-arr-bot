@@ -4,6 +4,21 @@ from telegram.ext import ContextTypes
 
 logger = logging.getLogger(__name__)
 
+# Telegram hard-caps a single message at 4096 characters.
+_TELEGRAM_MAX = 4000
+
+
+async def reply_in_chunks(message, header: str, lines: list[str]) -> None:
+    """Reply with a header followed by lines, splitting across messages if needed."""
+    chunk = header
+    for line in lines:
+        if len(chunk) + len(line) + 1 > _TELEGRAM_MAX:
+            await message.reply_text(chunk)
+            chunk = ""
+        chunk += ("\n" if chunk else "") + line
+    if chunk.strip():
+        await message.reply_text(chunk)
+
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command."""
