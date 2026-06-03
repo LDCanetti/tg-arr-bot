@@ -19,6 +19,8 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=getattr(logging, settings.log_level.upper(), logging.INFO)
 )
+# httpx logs full request URLs at INFO, which embed the bot token — keep it quiet.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
