@@ -15,7 +15,15 @@ the bot's own messages.
 import logging
 from difflib import get_close_matches
 
-from telegram import ForceReply, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import (
+    ForceReply,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
+    Update,
+)
 from telegram.ext import ContextTypes
 
 from app.handlers.general_handlers import BOT_COMMANDS, is_authorized
@@ -47,6 +55,49 @@ LIBRARY_MENU = InlineKeyboardMarkup([
 ])
 
 MENU_TEXT = "👋 What are you looking for?"
+
+# Persistent keyboard pinned under the text box. The labels must be real
+# commands: tapping one sends its text as an ordinary message, and privacy mode
+# only delivers messages that start with a slash. "📚 My movies" would be sent
+# by the user and never reach us.
+QUICK_KEYBOARD = ReplyKeyboardMarkup(
+    [
+        [KeyboardButton("/menu"), KeyboardButton("/mymovies")],
+        [KeyboardButton("/myshows"), KeyboardButton("/myanime")],
+        [KeyboardButton("/help"), KeyboardButton("/hide")],
+    ],
+    resize_keyboard=True,   # compact rows instead of a half-screen grid
+    is_persistent=True,     # stays put instead of collapsing behind the keyboard icon
+    selective=True,         # only the person who asked for it sees it, not the whole group
+)
+
+
+async def _send_with_quick_keyboard(update: Update, text: str) -> None:
+    """Attach the quick keyboard, targeted at the requesting user only.
+
+    selective=True needs the message to be a reply to that user, otherwise
+    Telegram shows the keyboard to everyone in the group.
+    """
+    await update.message.reply_text(
+        text,
+        reply_markup=QUICK_KEYBOARD,
+        reply_to_message_id=update.message.message_id,
+        allow_sending_without_reply=True,
+    )
+
+
+async def hide_keyboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /hide — take the quick keyboard away again."""
+    if not update.message:
+        return
+    if not is_authorized(update, context):
+        return
+    await update.message.reply_text(
+        "⌨️ Keyboard hidden. Send /start to bring it back.",
+        reply_markup=ReplyKeyboardRemove(selective=True),
+        reply_to_message_id=update.message.message_id,
+        allow_sending_without_reply=True,
+    )
 
 
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

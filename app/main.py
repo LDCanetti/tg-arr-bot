@@ -24,6 +24,7 @@ from app.handlers.menu_handlers import (
     button_library,
     button_menu,
     handle_prompt_reply,
+    hide_keyboard_command,
     menu_command,
     unknown_command,
 )
@@ -106,6 +107,7 @@ def main() -> None:
         application.add_handler(CommandHandler("start", start_command))
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("menu", menu_command))
+        application.add_handler(CommandHandler("hide", hide_keyboard_command))
 
         # Tap-to-search menu
         application.add_handler(CallbackQueryHandler(button_menu, pattern=r'^menu:'))

@@ -17,7 +17,8 @@ BOT_COMMANDS = [
     BotCommand("addmovie", "🎬 Add the top match for a movie title"),
     BotCommand("addshow", "📺 Search for a show by title"),
     BotCommand("help", "ℹ️ Show the command list"),
-    BotCommand("start", "👋 Show the welcome message"),
+    BotCommand("start", "👋 Show the welcome message and buttons"),
+    BotCommand("hide", "⌨️ Hide the button keyboard"),
 ]
 
 # Telegram hard-caps a single message at 4096 characters.
@@ -62,18 +63,20 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     
     # Imported here rather than at module scope: menu_handlers imports this
     # module, so a top-level import would be circular.
-    from app.handlers.menu_handlers import MAIN_MENU
+    from app.handlers.menu_handlers import _send_with_quick_keyboard
 
     user_name = update.effective_user.first_name or "User"
 
     welcome_message = (
         f"👋 Welcome {user_name}!\n\n"
-        "I add movies, TV shows and anime to the media server.\n"
-        "Tap a button below, or type a command like /movie Dune.\n\n"
-        "Type /help for the full list."
+        "I add movies, TV shows and anime to the media server.\n\n"
+        "Use the buttons below the text box — /menu walks you through a search "
+        "without typing anything. You can also type a command directly, "
+        "like /movie Dune.\n\n"
+        "/help for everything, /hide to put the buttons away."
     )
 
-    await update.message.reply_text(welcome_message, reply_markup=MAIN_MENU)
+    await _send_with_quick_keyboard(update, welcome_message)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -86,7 +89,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     help_message = (
         "📖 **Available Commands**\n\n"
         "🔎 **Easiest way**:\n"
-        "  /menu - Pick what to search from buttons, no typing\n\n"
+        "  /menu - Pick what to search from buttons, no typing\n"
+        "  /start - Show the button keyboard under the text box\n"
+        "  /hide - Put that keyboard away again\n\n"
         "🎬 **Radarr (Movies)**:\n"
         "  /movie <title> - Search for movies\n"
         "  /addmovie <title> - Add a movie to monitor\n"
