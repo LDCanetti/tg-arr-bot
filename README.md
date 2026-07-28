@@ -149,12 +149,28 @@ Published 12 commands to Telegram
 Application started
 ```
 
-The bundled `docker-compose.yml` in this repo spins up Sonarr and Radarr
-alongside the bot for trying it out from nothing. It is a minimal example, not a
-production layout: it mounts media and downloads as **separate** volumes, which
-forces Sonarr and Radarr to copy imports instead of hardlinking them. For real
-use, mount one shared volume (e.g. `/data`) across your download client and both
-*arr apps.
+#### Starting from nothing
+
+If you don't have Sonarr and Radarr yet, the bundled `docker-compose.yml` brings
+up the bot, Sonarr, Radarr and qBittorrent together:
+
+```bash
+mkdir -p data/Plex/{Shows,Anime,Movies} data/downloads
+docker compose up -d
+```
+
+Then open Sonarr (`:8989`) and Radarr (`:7878`), finish each setup wizard, add
+`/data/Plex/Shows`, `/data/Plex/Anime` and `/data/Plex/Movies` as root folders,
+copy the API keys into `.env`, and `docker compose up -d tg-bot` to pick them up.
+qBittorrent's web UI is on `:8080` and should use `/data/downloads` as its save
+path.
+
+Every service mounts the same single `./data` volume, and that is deliberate:
+Sonarr and Radarr can only **hardlink** an import if the download directory and
+the library are inside one container mount. Give them `/downloads` and `/tv` as
+separate mounts and the kernel refuses the link with `EXDEV` — even when both
+paths sit on the same host filesystem — so every import silently becomes a full
+copy, doubling disk use while you seed. Keep one mount.
 
 ## Using it in a group
 

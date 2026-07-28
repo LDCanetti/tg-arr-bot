@@ -1,16 +1,35 @@
-version: '3.8'
+# Example stack for trying tg-arr-bot from nothing: the bot, Sonarr, Radarr and
+# a download client, wired together.
+#
+# If you already run Sonarr and Radarr, don't use this file — add just the
+# tg-bot service to your existing Compose file on the same network. See README.
+#
+# The single ./data mount is the important part. Sonarr and Radarr can only
+# hardlink an imported file if the download directory and the library live
+# inside ONE container mount. Splitting them (/downloads + /tv) makes the kernel
+# refuse the link with EXDEV even when both sit on the same host filesystem, so
+# every import silently becomes a full copy.
 
 services:
-  bot:
+  tg-bot:
     build: .
     container_name: tg-arr-bot
     environment:
-      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN}
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN:?set TELEGRAM_TOKEN in .env}
       SONARR_URL: http://sonarr:8989
-      SONARR_API_KEY: ${SONARR_API_KEY}
+      SONARR_API_KEY: ${SONARR_API_KEY:-}
       RADARR_URL: http://radarr:7878
-      RADARR_API_KEY: ${RADARR_API_KEY}
-      ALLOWED_USERS: ${ALLOWED_USERS}
+      RADARR_API_KEY: ${RADARR_API_KEY:-}
+      ALLOWED_USERS: ${ALLOWED_USERS:?comma-separated Telegram user IDs}
+      # Optional: group chat IDs whose members may all use the bot.
+      ALLOWED_CHATS: ${ALLOWED_CHATS:-}
+      QUALITY_PROFILE_ID: ${QUALITY_PROFILE_ID:-1}
+      # These must match the root folders you register in Sonarr/Radarr,
+      # as those apps see them — i.e. under /data below.
+      SONARR_ROOT_SHOWS: /data/Plex/Shows
+      SONARR_ROOT_ANIME: /data/Plex/Anime
+      RADARR_ROOT_MOVIES: /data/Plex/Movies
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
       - sonarr
       - radarr
@@ -22,13 +41,12 @@ services:
     image: lscr.io/linuxserver/sonarr:latest
     container_name: sonarr
     environment:
-      PUID: 1000
-      PGID: 1000
-      TZ: UTC
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
     volumes:
-      - ./data/sonarr:/config
-      - ./data/downloads:/downloads
-      - ./data/tv:/tv
+      - ./config/sonarr:/config
+      - ./data:/data          # library + downloads in one mount, so imports hardlink
     ports:
       - "8989:8989"
     restart: unless-stopped
@@ -39,15 +57,33 @@ services:
     image: lscr.io/linuxserver/radarr:latest
     container_name: radarr
     environment:
-      PUID: 1000
-      PGID: 1000
-      TZ: UTC
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
     volumes:
-      - ./data/radarr:/config
-      - ./data/downloads:/downloads
-      - ./data/movies:/movies
+      - ./config/radarr:/config
+      - ./data:/data
     ports:
       - "7878:7878"
+    restart: unless-stopped
+    networks:
+      - arr-network
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-UTC}
+      WEBUI_PORT: 8080
+    volumes:
+      - ./config/qbittorrent:/config
+      - ./data:/data          # same mount again — this is what makes hardlinks work
+    ports:
+      - "8080:8080"
+      - "6881:6881"
+      - "6881:6881/udp"
     restart: unless-stopped
     networks:
       - arr-network
