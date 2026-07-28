@@ -5,7 +5,8 @@ Initializes and runs the Telegram bot with command handlers.
 
 import logging
 import sys
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, InlineQueryHandler, MessageHandler, filters
+from telegram import Update
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, InlineQueryHandler, TypeHandler
 
 from app.config.settings import settings
 from app.clients.sonarr import SonarrClient
@@ -47,7 +48,6 @@ async def log_update(update, context):
         logger.debug(f"Received callback from {update.effective_user.id}: {update.callback_query.data}")
     elif update.inline_query:
         logger.debug(f"Received inline query from {update.effective_user.id}: {update.inline_query.query}")
-    return False
 
 
 def main() -> None:
@@ -96,8 +96,9 @@ def main() -> None:
         application.add_handler(CallbackQueryHandler(button_monitor_anime, pattern=r'^monitor_anime_'))
         application.add_handler(InlineQueryHandler(inline_query_anime, pattern=r'(?i)^anime\s'))
         
-        # Add debug logging handler - logs all messages before they're processed (group -1 = before other handlers)
-        application.add_handler(MessageHandler(filters.ALL, log_update), group=-1)
+        # Debug logging for every update type (group -1 = before other handlers).
+        # TypeHandler, not MessageHandler — the latter never sees callback or inline queries.
+        application.add_handler(TypeHandler(Update, log_update), group=-1)
         
         # Add error handler to catch and log errors
         application.add_error_handler(error_handler)

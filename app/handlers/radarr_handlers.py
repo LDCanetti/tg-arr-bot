@@ -45,10 +45,6 @@ async def movie_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text(f"❌ No movies found for: {query}")
         return
     
-    # Store results in context for button callbacks
-    if not hasattr(context, 'user_data'):
-        context.user_data = {}
-    
     # Create inline buttons for search results
     keyboard = []
     for idx, movie in enumerate(results[:10], 1):  # Show up to 10 results
@@ -108,14 +104,10 @@ async def add_movie_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     tmdb_id = movie.get("tmdbId")
     
     result = await radarr.add_movie(tmdb_id, root_folder_path=settings.radarr_root_movies)
-    
+
     if result:
-        # Trigger search for all monitored movies
-        search_success = await radarr.trigger_monitored_search()
-        if search_success:
-            await update.message.reply_text(f"✅ Added '{title}' to Radarr and started searching monitored movies!")
-        else:
-            await update.message.reply_text(f"✅ Added '{title}' to Radarr (search trigger failed)")
+        # Radarr searches for this movie on add via searchForMovie — no library-wide search.
+        await update.message.reply_text(f"✅ Added '{title}' to Radarr and started searching for it!")
     else:
         await update.message.reply_text(f"❌ Failed to add '{title}' to Radarr.")
 
@@ -187,14 +179,10 @@ async def button_add_movie(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             return
         
         result = await radarr.add_movie(tmdb_id, root_folder_path=folder_path)
-        
+
         if result:
-            # Trigger search for all monitored movies
-            search_success = await radarr.trigger_monitored_search()
-            if search_success:
-                await query.edit_message_text(f"✅ Successfully added '{title}' to Radarr and started searching monitored movies!")
-            else:
-                await query.edit_message_text(f"✅ Successfully added '{title}' to Radarr (search trigger failed)")
+            # Radarr searches for this movie on add via searchForMovie — no library-wide search.
+            await query.edit_message_text(f"✅ Successfully added '{title}' to Radarr and started searching for it!")
         else:
             await query.answer(f"❌ Failed to add '{title}' to Radarr.", show_alert=True)
     

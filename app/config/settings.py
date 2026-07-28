@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     sonarr_root_anime: str = "/data/Plex/Anime"
     radarr_root_movies: str = "/data/Plex/Movies"
 
+    # Quality profile applied to everything the bot adds. 1 is "Any" — grab any
+    # quality, then upgrade toward the profile cutoff. Must exist in Sonarr/Radarr.
+    quality_profile_id: int = 1
+
     # Logging verbosity (DEBUG, INFO, WARNING, ERROR). DEBUG logs message contents.
     log_level: str = "INFO"
 

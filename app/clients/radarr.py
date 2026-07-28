@@ -64,20 +64,22 @@ class RadarrClient:
             return []
     
     async def add_movie(self, tmdb_id: int, root_folder_path: Optional[str] = None,
-                       quality_profile_id: int = 1, monitor: bool = True) -> Optional[Dict[str, Any]]:
+                       quality_profile_id: Optional[int] = None, monitor: bool = True) -> Optional[Dict[str, Any]]:
         """Add a movie to Radarr.
-        
+
         Args:
             tmdb_id: The Movie Database (TMDb) ID
             root_folder_path: Root folder path for the movie
-            quality_profile_id: Quality profile ID
+            quality_profile_id: Quality profile ID (defaults to the configured one)
             monitor: Whether to monitor the movie
-            
+
         Returns:
             Response from Radarr API or None on error
         """
         if root_folder_path is None:
             root_folder_path = settings.radarr_root_movies
+        if quality_profile_id is None:
+            quality_profile_id = settings.quality_profile_id
 
         url = f"{self.base_url}/api/v3/movie"
         

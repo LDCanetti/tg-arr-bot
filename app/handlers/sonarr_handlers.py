@@ -1,5 +1,11 @@
 import logging
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InlineQueryResultArticle,
+    InputTextMessageContent,
+    Update,
+)
 from telegram.ext import ContextTypes
 
 from app.clients.sonarr import SonarrClient
@@ -96,17 +102,21 @@ async def button_add_show(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         logger.warning("Received callback query without data in button_add_show")
         return
     
+    if not _is_user_allowed(update.effective_user.id, context):
+        await query.answer("❌ You don't have permission to use this bot.", show_alert=True)
+        return
+
     try:
         await query.answer()
-        
+
         tvdb_id = query.data.split(":")[1]
         data_key = f"show_{tvdb_id}"
         show_data = context.user_data.get(data_key, {})
         title = show_data.get("title", "Unknown")
-        
+
         # Store tvdb_id for the next callback
         context.user_data["pending_show_tvdb_id"] = tvdb_id
-        
+
         # Create monitoring options keyboard
         keyboard = []
         for monitor_type in MONITOR_ORDER:
@@ -126,64 +136,75 @@ async def button_add_show(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             logger.error(f"Failed to send error to user: {inner_e}")
 
 
-async def button_monitor_show(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle show monitoring option selection and add series."""
+async def _add_from_monitor_callback(update: Update, context: ContextTypes.DEFAULT_TYPE, anime: bool) -> None:
+    """Shared handler for the monitor-type buttons; adds the series to Sonarr."""
     query = update.callback_query
-    
+    kind = "anime" if anime else "show"
+
     if not query or not query.data:
-        logger.warning("Received callback query without data in button_monitor_show")
+        logger.warning(f"Received callback query without data in button_monitor_{kind}")
         return
-    
+
+    if not _is_user_allowed(update.effective_user.id, context):
+        await query.answer("❌ You don't have permission to use this bot.", show_alert=True)
+        return
+
     try:
         await query.answer()
-        
-        # Parse callback data: monitor_show_<type>:<tvdb_id>
-        parts = query.data.split(":")
-        tvdb_id = int(parts[1])
-        monitor_type = query.data.split("_", 2)[2].split(":")[0]  # Extract monitor type
-        
-        data_key = f"show_{tvdb_id}"
-        show_data = context.user_data.get(data_key, {})
-        title = show_data.get("title", "Unknown")
-        
+
+        # Parse callback data: monitor_<kind>_<type>:<tvdb_id>
+        tvdb_id = int(query.data.split(":")[1])
+        monitor_type = query.data.split("_", 2)[2].split(":")[0]
+
+        if monitor_type not in MONITOR_OPTIONS:
+            logger.warning(f"Unknown monitor type in callback: {monitor_type}")
+            await query.answer("❌ Unknown monitoring option.", show_alert=True)
+            return
+
+        data_key = f"{kind}_{tvdb_id}"
+        title = context.user_data.get(data_key, {}).get("title", "Unknown")
+
         client: SonarrClient = context.bot_data.get("sonarr_client")
-        
         if not client:
             await query.answer("❌ Sonarr client not initialized.", show_alert=True)
             return
-        
+
         result = await client.add_series(
             series_id=tvdb_id,
             title=title,
-            root_folder_path=settings.sonarr_root_shows,
-            quality_profile_id=1,
-            monitor_seasons=monitor_type
+            root_folder_path=settings.sonarr_root_anime if anime else settings.sonarr_root_shows,
+            quality_profile_id=settings.quality_profile_id,
+            monitor_seasons=monitor_type,
+            series_type="Anime" if anime else "Standard",
         )
-        
-        logger.info(f"button_monitor_show: Added series {tvdb_id} ({title}) with monitoring type: {monitor_type}")
-        
-        if result:
-            # Trigger search for all monitored episodes
-            search_success = await client.trigger_monitored_search()
-            monitor_label = MONITOR_OPTIONS.get(monitor_type, monitor_type)
-            if search_success:
-                await query.edit_message_text(
-                    text=f"✅ Show '{title}' added with monitoring: {monitor_label}\n🔍 Started searching monitored episodes!"
-                )
-            else:
-                await query.edit_message_text(
-                    text=f"✅ Show '{title}' added with monitoring: {monitor_label}\n⚠️ Search trigger failed"
-                )
-        else:
-            monitor_label = MONITOR_OPTIONS.get(monitor_type, monitor_type)
-            await query.edit_message_text(text=f"❌ Error adding show")
-        
+
+        label = kind.capitalize()
+        monitor_label = MONITOR_OPTIONS[monitor_type]
+
+        if not result:
+            await query.edit_message_text(text=f"❌ Error adding {kind}")
+            return
+
+        logger.info(f"Added {kind} {tvdb_id} ({title}) with monitoring type: {monitor_type}")
+
+        # Sonarr kicks off the search itself via addOptions.searchForMissingEpisodes,
+        # scoped to this series — no library-wide search needed.
+        text = f"✅ {label} '{title}' added with monitoring: {monitor_label}"
+        if SonarrClient.SEARCH_ON_ADD.get(monitor_type, True):
+            text += "\n🔍 Searching for episodes now!"
+        await query.edit_message_text(text=text)
+
     except Exception as e:
-        logger.error(f"Error adding show: {e}")
+        logger.error(f"Error adding {kind}: {e}")
         try:
-            await query.edit_message_text(text=f"❌ Error adding show: {str(e)}")
+            await query.edit_message_text(text=f"❌ Error adding {kind}: {str(e)}")
         except Exception as inner_e:
             logger.error(f"Failed to send error message: {inner_e}")
+
+
+async def button_monitor_show(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle show monitoring option selection and add series."""
+    await _add_from_monitor_callback(update, context, anime=False)
 
 
 async def add_show_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -299,17 +320,21 @@ async def button_add_anime(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         logger.warning("Received callback query without data in button_add_anime")
         return
     
+    if not _is_user_allowed(update.effective_user.id, context):
+        await query.answer("❌ You don't have permission to use this bot.", show_alert=True)
+        return
+
     try:
         await query.answer()
-        
+
         tvdb_id = query.data.split(":")[1]
         data_key = f"anime_{tvdb_id}"
         anime_data = context.user_data.get(data_key, {})
         title = anime_data.get("title", "Unknown")
-        
+
         # Store tvdb_id for the next callback
         context.user_data["pending_anime_tvdb_id"] = tvdb_id
-        
+
         # Create monitoring options keyboard
         keyboard = []
         for monitor_type in MONITOR_ORDER:
@@ -331,63 +356,7 @@ async def button_add_anime(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 async def button_monitor_anime(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle anime monitoring option selection and add series."""
-    query = update.callback_query
-    
-    if not query or not query.data:
-        logger.warning("Received callback query without data in button_monitor_anime")
-        return
-    
-    try:
-        await query.answer()
-        
-        # Parse callback data: monitor_anime_<type>:<tvdb_id>
-        parts = query.data.split(":")
-        tvdb_id = int(parts[1])
-        monitor_type = query.data.split("_", 2)[2].split(":")[0]  # Extract monitor type
-        
-        data_key = f"anime_{tvdb_id}"
-        anime_data = context.user_data.get(data_key, {})
-        title = anime_data.get("title", "Unknown")
-        
-        client: SonarrClient = context.bot_data.get("sonarr_client")
-        
-        if not client:
-            await query.answer("❌ Sonarr client not initialized.", show_alert=True)
-            return
-        
-        result = await client.add_series(
-            series_id=tvdb_id,
-            title=title,
-            root_folder_path=settings.sonarr_root_anime,
-            quality_profile_id=1,
-            monitor_seasons=monitor_type,
-            series_type="Anime"
-        )
-        
-        logger.info(f"button_monitor_anime: Added anime {tvdb_id} ({title}) with monitoring type: {monitor_type}")
-        
-        if result:
-            # Trigger search for all monitored episodes
-            search_success = await client.trigger_monitored_search()
-            monitor_label = MONITOR_OPTIONS.get(monitor_type, monitor_type)
-            if search_success:
-                await query.edit_message_text(
-                    text=f"✅ Anime '{title}' added with monitoring: {monitor_label}\n🔍 Started searching monitored episodes!"
-                )
-            else:
-                await query.edit_message_text(
-                    text=f"✅ Anime '{title}' added with monitoring: {monitor_label}\n⚠️ Search trigger failed"
-                )
-        else:
-            monitor_label = MONITOR_OPTIONS.get(monitor_type, monitor_type)
-            await query.edit_message_text(text=f"❌ Error adding anime")
-        
-    except Exception as e:
-        logger.error(f"Error adding anime: {e}")
-        try:
-            await query.edit_message_text(text=f"❌ Error adding anime: {str(e)}")
-        except Exception as inner_e:
-            logger.error(f"Failed to send error message: {inner_e}")
+    await _add_from_monitor_callback(update, context, anime=True)
 
 
 async def _inline_search_series(update: Update, context: ContextTypes.DEFAULT_TYPE, prefix: str) -> None:
@@ -412,26 +381,40 @@ async def _inline_search_series(update: Update, context: ContextTypes.DEFAULT_TY
     try:
         shows = await client.search_series(search_query)
 
-        from telegram import InlineQueryResultArticle, InputTextMessageContent
-
         results = []
         for show in shows[:5]:
             tvdb_id = show.get("tvdbId", show.get("id"))
             title = show.get("title", "Unknown")
+            year = show.get("year", "N/A")
             overview = show.get("overview", "")
+
+            # The follow-up callback reads the title from here, same as /show and /anime.
+            context.user_data[f"{prefix}_{tvdb_id}"] = {
+                "title": title,
+                "tvdb_id": tvdb_id,
+                "year": year,
+                "overview": overview,
+            }
+
+            emoji = "🎌" if prefix == "anime" else "📺"
+            keyboard = InlineKeyboardMarkup(
+                [[InlineKeyboardButton(f"➕ Add {prefix.capitalize()}", callback_data=f"select_{prefix}:{tvdb_id}")]]
+            )
+            text = f"{emoji} <b>{title}</b> ({year})"
+            if overview:
+                text += f"\n\n{overview[:200]}"
 
             results.append(
                 InlineQueryResultArticle(
-                    id=str(tvdb_id),
-                    title=title,
-                    input_message_content=InputTextMessageContent(
-                        message_text=f"Found: {title}"
-                    ),
-                    description=overview[:100]
+                    id=f"{prefix}_{tvdb_id}",
+                    title=f"{title} ({year})",
+                    description=overview[:100] if overview else f"Add this {prefix} to Sonarr",
+                    input_message_content=InputTextMessageContent(text, parse_mode="HTML"),
+                    reply_markup=keyboard,
                 )
             )
 
-        await update.inline_query.answer(results)
+        await update.inline_query.answer(results, cache_time=300)
 
     except Exception as e:
         logger.error(f"Error in inline query: {e}")

@@ -63,92 +63,80 @@ class SonarrClient:
             logger.error(f"Sonarr search failed: {e}")
             return []
     
+    # Our button keys -> Sonarr's MonitorTypes enum (api/v3 addOptions.monitor).
+    # Sonarr applies the season/episode monitoring itself; we must not hand-roll a
+    # "seasons" array, or it silently overrides the choice.
+    MONITOR_TYPES = {
+        "all": "all",
+        "future": "future",
+        "missing": "missing",
+        "existing": "existing",
+        "recent": "recent",
+        "pilot": "pilot",
+        "first": "firstSeason",
+        "last": "lastSeason",
+        "specials": "monitorSpecials",
+        "no_specials": "unmonitorSpecials",
+        "none": "none",
+    }
+
+    # Whether adding with this monitor type should kick off a search straight away.
+    # "future"/"existing"/"none" have nothing to go looking for.
+    SEARCH_ON_ADD = {
+        "all": True,
+        "future": False,
+        "missing": True,
+        "existing": False,
+        "recent": True,
+        "pilot": True,
+        "first": True,
+        "last": True,
+        "specials": True,
+        "no_specials": True,
+        "none": False,
+    }
+
     async def add_series(self, series_id: int, title: str = "", root_folder_path: Optional[str] = None,
-                        quality_profile_id: int = 1, monitor_seasons: str = "all", series_type: str = "Standard") -> Optional[Dict[str, Any]]:
+                        quality_profile_id: Optional[int] = None, monitor_seasons: str = "all", series_type: str = "Standard") -> Optional[Dict[str, Any]]:
         """Add a TV series to Sonarr with season monitoring.
-        
+
         Args:
             series_id: TheTVDB series ID
             title: Series title
             root_folder_path: Root folder path for the series
             quality_profile_id: Quality profile ID
-            monitor_seasons: Season monitoring type (all, first, last, none, future, missing, existing, recent, pilot)
+            monitor_seasons: Season monitoring type — a key of MONITOR_TYPES
             series_type: Series type - "Standard", "Daily", or "Anime" for absolute episode numbering
-            
+
         Returns:
             Response from Sonarr API or None on error
         """
         if root_folder_path is None:
-            root_folder_path = settings.sonarr_root_shows
+            # Anime lands in the anime root unless the caller says otherwise.
+            root_folder_path = settings.sonarr_root_anime if series_type == "Anime" else settings.sonarr_root_shows
+        if quality_profile_id is None:
+            quality_profile_id = settings.quality_profile_id
 
         url = f"{self.base_url}/api/v3/series"
-        
-        # Map monitor_seasons to the proper addOptions structure
-        # Sonarr uses searchForMissingEpisodes to determine what to download
-        add_options_mapping = {
-            "all": {"searchForMissingEpisodes": True},
-            "future": {"searchForMissingEpisodes": False},  # Only new episodes
-            "missing": {"searchForMissingEpisodes": True},   # Search for missing
-            "existing": {"searchForMissingEpisodes": False}, # Only existing
-            "recent": {"searchForMissingEpisodes": True},    # Recent episodes
-            "pilot": {"searchForMissingEpisodes": True},     # Pilot episode
-            "first": {"searchForMissingEpisodes": True},     # First season
-            "last": {"searchForMissingEpisodes": False},     # Last season - don't search old episodes
-            "specials": {"searchForMissingEpisodes": True},  # Specials
-            "no_specials": {"searchForMissingEpisodes": True},
-            "none": {"searchForMissingEpisodes": False}
-        }
-        
-        # Determine monitored status
-        monitored = monitor_seasons != "none"
-        
-        # Get add options for this monitor type
-        add_options = add_options_mapping.get(monitor_seasons, {"searchForMissingEpisodes": True})
-        
+
+        monitor = self.MONITOR_TYPES.get(monitor_seasons, "all")
+        search = self.SEARCH_ON_ADD.get(monitor_seasons, True)
+
         payload = {
             "tvdbId": series_id,
             "title": title,
             "rootFolderPath": root_folder_path,
             "qualityProfileId": quality_profile_id,
             "seriesType": series_type,
-            "monitored": monitored,
+            "monitored": monitor_seasons != "none",
             "seasonFolder": True,
-            "addOptions": add_options
+            "addOptions": {
+                "monitor": monitor,
+                "searchForMissingEpisodes": search,
+                "searchForCutoffUnmetEpisodes": False,
+            },
         }
-        
-        # For "first" season only - we need to unmonitor other seasons after adding
-        if monitor_seasons == "first":
-            payload["seasons"] = [
-                {"seasonNumber": 1, "monitored": True},
-                {"seasonNumber": -1, "monitored": False}  # Specials unmonitored
-            ]
-        # For "last" season only - get all seasons and mark all but last as unmonitored
-        elif monitor_seasons == "last":
-            # Search for series to get season information
-            search_url = f"{self.base_url}/api/v3/series/lookup"
-            search_params = {"term": f"tvdb:{series_id}"}
-            
-            try:
-                async with self._session_ctx() as session:
-                    async with session.get(search_url, headers=self.headers, params=search_params) as resp:
-                        if resp.status == 200:
-                            search_results = await resp.json()
-                            if search_results:
-                                series_info = search_results[0]
-                                seasons = series_info.get("seasons", [])
-                                if seasons:
-                                    max_season = max([s.get("seasonNumber", 0) for s in seasons])
-                                    payload["seasons"] = [
-                                        {"seasonNumber": s.get("seasonNumber", 0), 
-                                         "monitored": s.get("seasonNumber", 0) == max_season or s.get("seasonNumber", 0) == 0}
-                                        for s in seasons
-                                    ]
-            except Exception as e:
-                logger.warning(f"Failed to get season info for 'last' option: {e}")
-                # Continue with default - Sonarr will handle it
-        elif monitor_seasons == "none":
-            payload["monitored"] = False
-        
+
         try:
             async with self._session_ctx() as session:
                 async with session.post(url, headers=self.headers, json=payload) as resp:
@@ -237,8 +225,10 @@ class SonarrClient:
         except Exception as e:
             logger.error(f"Sonarr trigger monitored search failed: {e}")
             return False
+
+    async def get_root_folders(self) -> List[Dict[str, Any]]:
         """Get available root folders.
-        
+
         Returns:
             List of root folders with id and path
         """
