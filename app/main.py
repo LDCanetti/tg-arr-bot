@@ -5,13 +5,13 @@ Initializes and runs the Telegram bot with command handlers.
 
 import logging
 import sys
-from telegram import Update
+from telegram import BotCommandScopeAllGroupChats, BotCommandScopeDefault, Update
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, InlineQueryHandler, TypeHandler
 
 from app.config.settings import settings
 from app.clients.sonarr import SonarrClient
 from app.clients.radarr import RadarrClient
-from app.handlers.general_handlers import start_command, help_command
+from app.handlers.general_handlers import BOT_COMMANDS, start_command, help_command
 from app.handlers.radarr_handlers import movie_command, add_movie_command, button_add_movie, inline_query_radarr, my_movies_command
 from app.handlers.sonarr_handlers import show_command, add_show_command, button_add_show, button_monitor_show, button_add_anime, button_monitor_anime, inline_query_sonarr, anime_command, inline_query_anime, my_shows_command, my_anime_command
 
@@ -62,13 +62,30 @@ def main() -> None:
             await sonarr_client.close()
             await radarr_client.close()
 
+        async def _post_init(app) -> None:
+            """Publish the command list so typing '/' offers them in private chats and groups."""
+            try:
+                await app.bot.set_my_commands(BOT_COMMANDS, scope=BotCommandScopeDefault())
+                await app.bot.set_my_commands(BOT_COMMANDS, scope=BotCommandScopeAllGroupChats())
+                logger.info(f"Published {len(BOT_COMMANDS)} commands to Telegram")
+            except Exception as e:
+                # A failure here is cosmetic — the commands still work when typed in full.
+                logger.error(f"Failed to publish command list: {e}")
+
         # Create the Application
-        application = Application.builder().token(settings.telegram_token).post_shutdown(_post_shutdown).build()
+        application = (
+            Application.builder()
+            .token(settings.telegram_token)
+            .post_init(_post_init)
+            .post_shutdown(_post_shutdown)
+            .build()
+        )
         
         # Store clients and allowed users in bot_data
         application.bot_data["sonarr_client"] = sonarr_client
         application.bot_data["radarr_client"] = radarr_client
         application.bot_data["allowed_users"] = settings.allowed_user_ids
+        application.bot_data["allowed_chats"] = settings.allowed_chat_ids
         
         # Register command handlers
         application.add_handler(CommandHandler("start", start_command))
@@ -105,6 +122,7 @@ def main() -> None:
         
         logger.info("Bot started successfully!")
         logger.info(f"Allowed users: {settings.allowed_user_ids}")
+        logger.info(f"Allowed group chats: {settings.allowed_chat_ids}")
         
         # Start the Bot
         application.run_polling()

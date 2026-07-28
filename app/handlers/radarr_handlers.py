@@ -3,7 +3,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InlineQ
 from telegram.ext import ContextTypes
 from app.clients.radarr import RadarrClient
 from app.config.settings import settings
-from app.handlers.general_handlers import reply_in_chunks
+from app.handlers.general_handlers import is_authorized, reply_in_chunks
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ async def movie_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
     
     # Check if user is allowed
-    if not _is_user_allowed(update.effective_user.id, context):
+    if not is_authorized(update, context):
         logger.warning(f"movie_command: User {update.effective_user.id} not in allowed users")
         await update.message.reply_text("❌ You don't have permission to use this bot.")
         return
@@ -73,7 +73,7 @@ async def add_movie_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if not update.message:
         return
     
-    if not _is_user_allowed(update.effective_user.id, context):
+    if not is_authorized(update, context):
         await update.message.reply_text("❌ You don't have permission to use this bot.")
         return
     
@@ -118,7 +118,7 @@ async def my_movies_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if not update.message:
         return
 
-    if not _is_user_allowed(update.effective_user.id, context):
+    if not is_authorized(update, context):
         await update.message.reply_text("❌ You don't have permission to use this bot.")
         return
 
@@ -153,7 +153,7 @@ async def button_add_movie(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
     
     # Check if user is allowed
-    if not _is_user_allowed(update.effective_user.id, context):
+    if not is_authorized(update, context):
         await query.answer("❌ You don't have permission to use this bot.", show_alert=True)
         return
     
@@ -191,12 +191,6 @@ async def button_add_movie(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await query.answer("❌ An error occurred while adding the movie.", show_alert=True)
 
 
-def _is_user_allowed(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Check if user is in allowed list."""
-    allowed_users = context.bot_data.get("allowed_users", [])
-    return user_id in allowed_users
-
-
 async def inline_query_radarr(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle inline query for movies (e.g., @botname movie The Matrix)."""
     query = update.inline_query
@@ -205,7 +199,7 @@ async def inline_query_radarr(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     
     # Check if user is allowed
-    if not _is_user_allowed(update.effective_user.id, context):
+    if not is_authorized(update, context):
         return
     
     search_query = query.query.strip()

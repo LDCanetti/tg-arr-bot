@@ -10,7 +10,7 @@ from telegram.ext import ContextTypes
 
 from app.clients.sonarr import SonarrClient
 from app.config.settings import settings
-from app.handlers.general_handlers import reply_in_chunks
+from app.handlers.general_handlers import is_authorized, reply_in_chunks
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +32,6 @@ MONITOR_OPTIONS = {
 MONITOR_ORDER = ["all", "future", "missing", "existing", "recent", "pilot", "first", "last", "specials", "no_specials", "none"]
 
 
-def _is_user_allowed(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Check if user is allowed to use admin commands."""
-    allowed_users = context.bot_data.get("allowed_users", [])
-    return user_id in allowed_users
-
-
 async def show_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /show command to search for TV shows."""
     logger.info(f"show_command called from user {update.effective_user.id}")
@@ -45,7 +39,7 @@ async def show_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         logger.warning(f"show_command: No message in update")
         return
     
-    if not _is_user_allowed(update.effective_user.id, context):
+    if not is_authorized(update, context):
         logger.warning(f"show_command: User {update.effective_user.id} not in allowed users")
         await update.message.reply_text("❌ You don't have permission to use this bot.")
         return
@@ -102,7 +96,7 @@ async def button_add_show(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         logger.warning("Received callback query without data in button_add_show")
         return
     
-    if not _is_user_allowed(update.effective_user.id, context):
+    if not is_authorized(update, context):
         await query.answer("❌ You don't have permission to use this bot.", show_alert=True)
         return
 
@@ -145,7 +139,7 @@ async def _add_from_monitor_callback(update: Update, context: ContextTypes.DEFAU
         logger.warning(f"Received callback query without data in button_monitor_{kind}")
         return
 
-    if not _is_user_allowed(update.effective_user.id, context):
+    if not is_authorized(update, context):
         await query.answer("❌ You don't have permission to use this bot.", show_alert=True)
         return
 
@@ -217,7 +211,7 @@ async def _list_series(update: Update, context: ContextTypes.DEFAULT_TYPE, anime
     if not update.message:
         return
 
-    if not _is_user_allowed(update.effective_user.id, context):
+    if not is_authorized(update, context):
         await update.message.reply_text("❌ You don't have permission to use this bot.")
         return
 
@@ -263,7 +257,7 @@ async def anime_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         logger.warning(f"anime_command: No message in update")
         return
     
-    if not _is_user_allowed(update.effective_user.id, context):
+    if not is_authorized(update, context):
         logger.warning(f"anime_command: User {update.effective_user.id} not in allowed users")
         await update.message.reply_text("❌ You don't have permission to use this bot.")
         return
@@ -320,7 +314,7 @@ async def button_add_anime(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         logger.warning("Received callback query without data in button_add_anime")
         return
     
-    if not _is_user_allowed(update.effective_user.id, context):
+    if not is_authorized(update, context):
         await query.answer("❌ You don't have permission to use this bot.", show_alert=True)
         return
 
@@ -366,7 +360,7 @@ async def _inline_search_series(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     # Check if user is allowed
-    if not _is_user_allowed(update.effective_user.id, context):
+    if not is_authorized(update, context):
         return
 
     # Drop the leading routing keyword that got us here (length-based, case-insensitive)

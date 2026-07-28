@@ -1,11 +1,43 @@
 import logging
-from telegram import Update
+from telegram import BotCommand, Update
 from telegram.ext import ContextTypes
 
 logger = logging.getLogger(__name__)
 
+# Registered with Telegram on startup so typing "/" pops up the command list.
+# Keep in sync with help_command below.
+BOT_COMMANDS = [
+    BotCommand("movie", "🎬 Search for a movie to add"),
+    BotCommand("show", "📺 Search for a TV show to add"),
+    BotCommand("anime", "🎌 Search for anime to add"),
+    BotCommand("mymovies", "🎬 List movies in the library"),
+    BotCommand("myshows", "📺 List TV shows in the library"),
+    BotCommand("myanime", "🎌 List anime in the library"),
+    BotCommand("addmovie", "🎬 Add the top match for a movie title"),
+    BotCommand("addshow", "📺 Search for a show by title"),
+    BotCommand("help", "ℹ️ Show the command list"),
+    BotCommand("start", "👋 Show the welcome message"),
+]
+
 # Telegram hard-caps a single message at 4096 characters.
 _TELEGRAM_MAX = 4000
+
+
+def is_authorized(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Authorize by user ID, or by membership of an allowed group chat.
+
+    Inline queries and buttons on inline-sent messages carry no chat, so those are
+    always user-ID only — Telegram doesn't tell us which chat they came from.
+    """
+    user = update.effective_user
+    if user and user.id in context.bot_data.get("allowed_users", []):
+        return True
+
+    chat = update.effective_chat
+    if chat and chat.id in context.bot_data.get("allowed_chats", []):
+        return True
+
+    return False
 
 
 async def reply_in_chunks(message, header: str, lines: list[str]) -> None:
