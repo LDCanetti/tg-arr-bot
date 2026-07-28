@@ -31,41 +31,45 @@ async def movie_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         return
     
-    query = " ".join(context.args)
-    await update.message.reply_text(f"🔍 Searching for: {query}")
-    
+    await search_movies_and_reply(update, context, " ".join(context.args))
+
+
+async def search_movies_and_reply(update: Update, context: ContextTypes.DEFAULT_TYPE, query: str) -> None:
+    """Search Radarr and offer the hits as buttons.
+
+    Shared by /movie and the tap-to-search menu, so it replies to
+    effective_message rather than assuming the update carries a command.
+    """
+    message = update.effective_message
+    await message.reply_text(f"🔍 Searching for: {query}")
+
     radarr: RadarrClient = context.bot_data.get("radarr_client")
     if not radarr:
-        await update.message.reply_text("❌ Radarr client not initialized.")
+        await message.reply_text("❌ Radarr client not initialized.")
         return
-    
+
     results = await radarr.search_movies(query)
-    
+
     if not results:
-        await update.message.reply_text(f"❌ No movies found for: {query}")
+        await message.reply_text(f"❌ No movies found for: {query}")
         return
-    
+
     # Create inline buttons for search results
     keyboard = []
-    for idx, movie in enumerate(results[:10], 1):  # Show up to 10 results
+    for movie in results[:10]:  # Show up to 10 results
         title = movie.get("title", "Unknown")
         year = movie.get("year", "N/A")
         tmdb_id = movie.get("tmdbId", "N/A")
-        
-        # Store movie data with a unique key
-        data_key = f"movie_{tmdb_id}"
-        context.user_data[data_key] = {"tmdb_id": tmdb_id, "title": title, "folder_path": settings.radarr_root_movies}
-        
-        # Create button with movie title and year - just store the tmdb_id as callback data
-        button_text = f"📽️ {title} ({year})"
-        callback_data = f"add_movie:{tmdb_id}"
-        keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    # Show search results
+
+        # Stashed for the callback, which only carries the id.
+        context.user_data[f"movie_{tmdb_id}"] = {
+            "tmdb_id": tmdb_id, "title": title, "folder_path": settings.radarr_root_movies
+        }
+
+        keyboard.append([InlineKeyboardButton(f"📽️ {title} ({year})", callback_data=f"add_movie:{tmdb_id}")])
+
     response = f"🎬 Found {len(results)} movies for: {query}\n\nClick a movie to add it:"
-    await update.message.reply_text(response, reply_markup=reply_markup)
+    await message.reply_text(response, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def add_movie_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -113,23 +117,24 @@ async def add_movie_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def my_movies_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /mymovies command to list movies in the Radarr library."""
+    """List movies in the Radarr library; used by /mymovies and the Library menu."""
     logger.info(f"my_movies_command called from user {update.effective_user.id}")
-    if not update.message:
+    message = update.effective_message
+    if not message:
         return
 
     if not is_authorized(update, context):
-        await update.message.reply_text("❌ You don't have permission to use this bot.")
+        await message.reply_text("❌ You don't have permission to use this bot.")
         return
 
     radarr: RadarrClient = context.bot_data.get("radarr_client")
     if not radarr:
-        await update.message.reply_text("❌ Radarr client not initialized.")
+        await message.reply_text("❌ Radarr client not initialized.")
         return
 
     movies = await radarr.get_monitored_movies()
     if not movies:
-        await update.message.reply_text("🎬 No movies in your Radarr library yet.")
+        await message.reply_text("🎬 No movies in your Radarr library yet.")
         return
 
     movies.sort(key=lambda m: (m.get("sortTitle") or m.get("title") or "").lower())
@@ -137,7 +142,7 @@ async def my_movies_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         f"{'✅' if m.get('hasFile') else '⏳'} {m.get('title', 'Unknown')} ({m.get('year', 'N/A')})"
         for m in movies
     ]
-    await reply_in_chunks(update.message, f"🎬 Your movies ({len(movies)}):\n", lines)
+    await reply_in_chunks(message, f"🎬 Your movies ({len(movies)}):\n", lines)
 
 
 async def button_add_movie(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

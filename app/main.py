@@ -6,12 +6,27 @@ Initializes and runs the Telegram bot with command handlers.
 import logging
 import sys
 from telegram import BotCommandScopeAllGroupChats, BotCommandScopeDefault, Update
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, InlineQueryHandler, TypeHandler
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    InlineQueryHandler,
+    MessageHandler,
+    TypeHandler,
+    filters,
+)
 
 from app.config.settings import settings
 from app.clients.sonarr import SonarrClient
 from app.clients.radarr import RadarrClient
 from app.handlers.general_handlers import BOT_COMMANDS, start_command, help_command
+from app.handlers.menu_handlers import (
+    button_library,
+    button_menu,
+    handle_prompt_reply,
+    menu_command,
+    unknown_command,
+)
 from app.handlers.radarr_handlers import movie_command, add_movie_command, button_add_movie, inline_query_radarr, my_movies_command
 from app.handlers.sonarr_handlers import show_command, add_show_command, button_add_show, button_monitor_show, button_add_anime, button_monitor_anime, inline_query_sonarr, anime_command, inline_query_anime, my_shows_command, my_anime_command
 
@@ -90,6 +105,11 @@ def main() -> None:
         # Register command handlers
         application.add_handler(CommandHandler("start", start_command))
         application.add_handler(CommandHandler("help", help_command))
+        application.add_handler(CommandHandler("menu", menu_command))
+
+        # Tap-to-search menu
+        application.add_handler(CallbackQueryHandler(button_menu, pattern=r'^menu:'))
+        application.add_handler(CallbackQueryHandler(button_library, pattern=r'^lib:'))
         
         # Radarr handlers
         application.add_handler(CommandHandler("movie", movie_command))
@@ -113,6 +133,15 @@ def main() -> None:
         application.add_handler(CallbackQueryHandler(button_monitor_anime, pattern=r'^monitor_anime_'))
         application.add_handler(InlineQueryHandler(inline_query_anime, pattern=r'(?i)^anime\s'))
         
+        # Replies to our ForceReply prompts feed the menu search.
+        application.add_handler(
+            MessageHandler(filters.REPLY & filters.TEXT & ~filters.COMMAND, handle_prompt_reply)
+        )
+
+        # Must be registered last in this group: within a group only the first
+        # matching handler runs, so every real command above wins over this.
+        application.add_handler(MessageHandler(filters.COMMAND, unknown_command))
+
         # Debug logging for every update type (group -1 = before other handlers).
         # TypeHandler, not MessageHandler — the latter never sees callback or inline queries.
         application.add_handler(TypeHandler(Update, log_update), group=-1)

@@ -7,6 +7,7 @@ logger = logging.getLogger(__name__)
 # Registered with Telegram on startup so typing "/" pops up the command list.
 # Keep in sync with help_command below.
 BOT_COMMANDS = [
+    BotCommand("menu", "🔎 Pick what to search from buttons"),
     BotCommand("movie", "🎬 Search for a movie to add"),
     BotCommand("show", "📺 Search for a TV show to add"),
     BotCommand("anime", "🎌 Search for anime to add"),
@@ -59,27 +60,20 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         logger.warning(f"start_command: No message in update")
         return
     
+    # Imported here rather than at module scope: menu_handlers imports this
+    # module, so a top-level import would be circular.
+    from app.handlers.menu_handlers import MAIN_MENU
+
     user_name = update.effective_user.first_name or "User"
-    
+
     welcome_message = (
         f"👋 Welcome {user_name}!\n\n"
-        "I'm a Telegram bot that helps you manage your media library.\n\n"
-        "🎬 **Movies** (Radarr):\n"
-        "  /movie <title> - Search for movies\n"
-        "  /addmovie <title> - Add a movie\n"
-        "  /mymovies - List monitored movies\n\n"
-        "📺 **TV Shows** (Sonarr):\n"
-        "  /show <title> - Search for TV shows\n"
-        "  /addshow <title> - Add a TV show\n"
-        "  /myshows - List monitored shows\n\n"
-        "🎌 **Anime** (Sonarr):\n"
-        "  /anime <title> - Search for anime\n"
-        "  /myanime - List monitored anime\n\n"
-        "ℹ️ **Info**:\n"
-        "  /help - Show this help message\n"
+        "I add movies, TV shows and anime to the media server.\n"
+        "Tap a button below, or type a command like /movie Dune.\n\n"
+        "Type /help for the full list."
     )
-    
-    await update.message.reply_text(welcome_message, parse_mode="Markdown")
+
+    await update.message.reply_text(welcome_message, reply_markup=MAIN_MENU)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -91,6 +85,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     
     help_message = (
         "📖 **Available Commands**\n\n"
+        "🔎 **Easiest way**:\n"
+        "  /menu - Pick what to search from buttons, no typing\n\n"
         "🎬 **Radarr (Movies)**:\n"
         "  /movie <title> - Search for movies\n"
         "  /addmovie <title> - Add a movie to monitor\n"
@@ -107,8 +103,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "  @YourBotName show <title> - Search TV shows\n"
         "  @YourBotName anime <title> - Search anime\n\n"
         "💡 **Tips**:\n"
-        "  • Use quotes for exact matches: /movie \"The Matrix\"\n"
-        "  • Inline queries work in any Telegram chat\n"
+        "  • /menu is the quickest way — just tap and reply\n"
+        "  • Inline queries work in any chat, but only for the bot's owners\n"
         "  • Anime goes to your anime folder, shows go to your shows folder\n"
     )
     

@@ -32,60 +32,72 @@ MONITOR_OPTIONS = {
 MONITOR_ORDER = ["all", "future", "missing", "existing", "recent", "pilot", "first", "last", "specials", "no_specials", "none"]
 
 
+async def search_series_and_reply(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                                  query: str, anime: bool) -> None:
+    """Search Sonarr and offer the hits as buttons.
+
+    Shared by /show, /anime and the tap-to-search menu, so it replies to
+    effective_message rather than assuming the update carries a command.
+    """
+    message = update.effective_message
+    kind = "anime" if anime else "show"
+    noun = "anime" if anime else "shows"
+
+    client: SonarrClient = context.bot_data.get("sonarr_client")
+    if not client:
+        await message.reply_text("❌ Sonarr client not initialized.")
+        return
+
+    try:
+        results = await client.search_series(query)
+
+        if not results:
+            await message.reply_text(f"No {noun} found for '{query}'")
+            return
+
+        keyboard = []
+        for item in results[:10]:  # Limit to 10 results
+            tvdb_id = item.get("tvdbId", item.get("id"))
+            title = item.get("title", "Unknown")
+            year = item.get("year", "")
+
+            # Stashed for the callback, which only carries the id.
+            context.user_data[f"{kind}_{tvdb_id}"] = {
+                "title": title,
+                "tvdb_id": tvdb_id,
+                "year": year,
+                "overview": item.get("overview", ""),
+            }
+
+            label = f"{title} ({year})" if year else title
+            keyboard.append([InlineKeyboardButton(label, callback_data=f"select_{kind}:{tvdb_id}")])
+
+        await message.reply_text(
+            f"Select {'an anime' if anime else 'a show'}:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+
+    except Exception as e:
+        logger.error(f"Error searching {noun}: {e}")
+        await message.reply_text(f"Error searching {noun}: {str(e)}")
+
+
 async def show_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /show command to search for TV shows."""
     logger.info(f"show_command called from user {update.effective_user.id}")
     if not update.message:
-        logger.warning(f"show_command: No message in update")
         return
-    
+
     if not is_authorized(update, context):
-        logger.warning(f"show_command: User {update.effective_user.id} not in allowed users")
+        logger.warning(f"show_command: user {update.effective_user.id} not authorized")
         await update.message.reply_text("❌ You don't have permission to use this bot.")
         return
 
     if not context.args:
-        logger.info(f"show_command: No arguments provided")
         await update.message.reply_text("Please provide a show name. Usage: /show <show_name>")
         return
 
-    show_name = " ".join(context.args)
-    client: SonarrClient = context.bot_data.get("sonarr_client")
-    
-    if not client:
-        await update.message.reply_text("❌ Sonarr client not initialized.")
-        return
-    
-    try:
-        shows = await client.search_series(show_name)
-        
-        if not shows:
-            await update.message.reply_text(f"No shows found for '{show_name}'")
-            return
-        
-        # Store search results and create keyboard
-        keyboard = []
-        for show in shows[:10]:  # Limit to 10 results
-            tvdb_id = show.get("tvdbId", show.get("id"))
-            title = show.get("title", "Unknown")
-            
-            # Store show data for later retrieval
-            data_key = f"show_{tvdb_id}"
-            context.user_data[data_key] = {
-                "title": title,
-                "tvdb_id": tvdb_id,
-                "year": show.get("year", ""),
-                "overview": show.get("overview", "")
-            }
-            
-            keyboard.append([InlineKeyboardButton(title, callback_data=f"select_show:{tvdb_id}")])
-        
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text("Select a show:", reply_markup=reply_markup)
-        
-    except Exception as e:
-        logger.error(f"Error searching shows: {e}")
-        await update.message.reply_text(f"Error searching shows: {str(e)}")
+    await search_series_and_reply(update, context, " ".join(context.args), anime=False)
 
 
 async def button_add_show(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -206,18 +218,19 @@ async def add_show_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     await show_command(update, context)
 
 
-async def _list_series(update: Update, context: ContextTypes.DEFAULT_TYPE, anime: bool) -> None:
-    """Shared lister for /myshows and /myanime, split by series type."""
-    if not update.message:
+async def list_series(update: Update, context: ContextTypes.DEFAULT_TYPE, anime: bool) -> None:
+    """Shared lister for /myshows, /myanime and the menu's Library buttons."""
+    message = update.effective_message
+    if not message:
         return
 
     if not is_authorized(update, context):
-        await update.message.reply_text("❌ You don't have permission to use this bot.")
+        await message.reply_text("❌ You don't have permission to use this bot.")
         return
 
     client: SonarrClient = context.bot_data.get("sonarr_client")
     if not client:
-        await update.message.reply_text("❌ Sonarr client not initialized.")
+        await message.reply_text("❌ Sonarr client not initialized.")
         return
 
     series = await client.get_monitored_series()
@@ -226,7 +239,7 @@ async def _list_series(update: Update, context: ContextTypes.DEFAULT_TYPE, anime
     emoji = "🎌" if anime else "📺"
     label = "anime" if anime else "shows"
     if not filtered:
-        await update.message.reply_text(f"{emoji} No {label} in your Sonarr library yet.")
+        await message.reply_text(f"{emoji} No {label} in your Sonarr library yet.")
         return
 
     filtered.sort(key=lambda s: (s.get("sortTitle") or s.get("title") or "").lower())
@@ -235,75 +248,37 @@ async def _list_series(update: Update, context: ContextTypes.DEFAULT_TYPE, anime
         f"{s.get('title', 'Unknown')} ({s.get('year', 'N/A')})"
         for s in filtered
     ]
-    await reply_in_chunks(update.message, f"{emoji} Your {label} ({len(filtered)}):\n", lines)
+    await reply_in_chunks(message, f"{emoji} Your {label} ({len(filtered)}):\n", lines)
 
 
 async def my_shows_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /myshows command to list standard TV shows in Sonarr."""
     logger.info(f"my_shows_command called from user {update.effective_user.id}")
-    await _list_series(update, context, anime=False)
+    await list_series(update, context, anime=False)
 
 
 async def my_anime_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /myanime command to list anime in Sonarr."""
     logger.info(f"my_anime_command called from user {update.effective_user.id}")
-    await _list_series(update, context, anime=True)
+    await list_series(update, context, anime=True)
 
 
 async def anime_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /anime command to search for anime."""
     logger.info(f"anime_command called from user {update.effective_user.id}")
     if not update.message:
-        logger.warning(f"anime_command: No message in update")
         return
-    
+
     if not is_authorized(update, context):
-        logger.warning(f"anime_command: User {update.effective_user.id} not in allowed users")
+        logger.warning(f"anime_command: user {update.effective_user.id} not authorized")
         await update.message.reply_text("❌ You don't have permission to use this bot.")
         return
 
     if not context.args:
-        logger.info(f"anime_command: No arguments provided")
         await update.message.reply_text("Please provide an anime name. Usage: /anime <anime_name>")
         return
 
-    anime_name = " ".join(context.args)
-    client: SonarrClient = context.bot_data.get("sonarr_client")
-    
-    if not client:
-        await update.message.reply_text("❌ Sonarr client not initialized.")
-        return
-    
-    try:
-        anime_shows = await client.search_series(anime_name)
-        
-        if not anime_shows:
-            await update.message.reply_text(f"No anime found for '{anime_name}'")
-            return
-        
-        # Store search results and create keyboard
-        keyboard = []
-        for anime in anime_shows[:10]:  # Limit to 10 results
-            tvdb_id = anime.get("tvdbId", anime.get("id"))
-            title = anime.get("title", "Unknown")
-            
-            # Store anime data for later retrieval
-            data_key = f"anime_{tvdb_id}"
-            context.user_data[data_key] = {
-                "title": title,
-                "tvdb_id": tvdb_id,
-                "year": anime.get("year", ""),
-                "overview": anime.get("overview", "")
-            }
-            
-            keyboard.append([InlineKeyboardButton(title, callback_data=f"select_anime:{tvdb_id}")])
-        
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text("Select an anime:", reply_markup=reply_markup)
-        
-    except Exception as e:
-        logger.error(f"Error searching anime: {e}")
-        await update.message.reply_text(f"Error searching anime: {str(e)}")
+    await search_series_and_reply(update, context, " ".join(context.args), anime=True)
 
 
 async def button_add_anime(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
