@@ -1,225 +1,257 @@
-# tg-arr-bot - Telegram Sonarr & Radarr Bot
+# tg-arr-bot — Telegram Sonarr & Radarr Bot
 
-A Docker containerized Telegram bot for managing your Sonarr and Radarr media libraries through an intuitive chat interface.
+A Telegram bot for adding movies, TV shows and anime to an existing Sonarr/Radarr
+setup. Search from a chat, pick a result from inline buttons, and the bot creates
+the entry and kicks off a search for it.
+
+Designed to be dropped into a group so everyone who uses your media server can
+request media themselves, without any of them needing access to Sonarr or Radarr.
 
 ## Features
 
-- 🎬 **Radarr Integration**: Search and add movies to your library via Telegram
-- 📺 **Sonarr Integration**: Search and add TV shows to your library via Telegram
-- 🔐 **Secure**: User whitelist to restrict access to the bot
-- 🐳 **Docker Compose**: Ready-to-deploy with Sonarr and Radarr services
-- ⚡ **Async Operations**: Built with async/await for responsive bot interactions
+- 🎬 **Radarr** — search and add movies
+- 📺 **Sonarr** — search and add TV shows
+- 🎌 **Anime** — added as `seriesType: Anime` (absolute episode numbering) in its own root folder
+- 🎛️ **Full monitoring choice** — all 11 of Sonarr's monitor options, not just "everything"
+- 👥 **Group access** — authorize a whole group chat, or individual users
+- 🔎 **Tap-to-search** — a button menu so members never have to learn the commands
+- ⚡ **Async** throughout, one reused HTTP session per service
 
-## Available Commands
+## Commands
 
-### Movies (Radarr)
-- `/movie <title>` - Search for movies
-- `/addmovie <title>` - Add a movie to Radarr
-- `/mymovies` - List monitored movies (coming soon)
+| Command | What it does |
+|---|---|
+| `/menu` | Button menu — pick a category, reply with a title. No syntax to remember. |
+| `/movie <title>` | Search movies, pick from buttons |
+| `/show <title>` | Search TV shows, pick a result then a monitoring option |
+| `/anime <title>` | Same as `/show`, but filed as anime |
+| `/mymovies` | List the Radarr library (✅ = has a file, ⏳ = still wanted) |
+| `/myshows` | List non-anime series |
+| `/myanime` | List anime series |
+| `/addmovie <title>` | Skip the menu and add the top match directly |
+| `/addshow <title>` | Alias for `/show` (searches; does not blind-add) |
+| `/start` | Welcome message plus the quick keyboard |
+| `/hide` | Remove the quick keyboard |
+| `/help` | The above, in chat |
 
-### TV Shows (Sonarr)
-- `/show <title>` - Search for TV shows
-- `/addshow <title>` - Add a TV show to Sonarr
-- `/myshows` - List monitored shows (coming soon)
+Mistyped commands get a usage reminder with a closest-match suggestion, so
+`/movei` replies "Did you mean /movie?".
 
-### Anime (Sonarr)
-- `/anime <title>` - Search for anime
-- `/myanime` - List monitored anime (coming soon)
+The command list is published to Telegram on startup, so typing `/` offers them
+as tappable suggestions in both private chats and groups.
 
-### General
-- `/start` - Welcome message and command overview
-- `/help` - Show all available commands
+### How adding works
 
-### Inline Queries
-You can also search directly in any chat using inline mode:
-- `@BotName movie The Matrix` - Search and add movies
-- `@BotName show Breaking Bad` - Search and add TV shows
-- `@BotName anime Demon Slayer` - Search and add anime
+Movies are added monitored, and Radarr searches for them immediately
+(`searchForMovie`).
+
+Shows and anime ask which seasons to monitor first. The choice maps to Sonarr's
+`addOptions.monitor` enum, so it behaves exactly like the dropdown in Sonarr's
+own "Add Series" dialog:
+
+| Button | Sonarr value | Searches on add |
+|---|---|---|
+| 📺 All Episodes | `all` | yes |
+| 🔮 Future Episodes | `future` | no |
+| ❌ Missing Episodes | `missing` | yes |
+| ✅ Existing Episodes | `existing` | no |
+| 🕐 Recent Episodes | `recent` | yes |
+| 🎬 Pilot Episode | `pilot` | yes |
+| 🎞️ First Season | `firstSeason` | yes |
+| ⏱️ Last Season | `lastSeason` | yes |
+| 🎪 Monitor Specials | `monitorSpecials` | yes |
+| 🚫 Unmonitor Specials | `unmonitorSpecials` | yes |
+| ⛔ None | `none` | no |
+
+Searches are scoped to the item just added — the bot does not trigger a
+library-wide "search all missing", which would hammer your indexers.
 
 ## Prerequisites
 
-- Docker & Docker Compose installed
-- Telegram Bot Token (from @BotFather)
-- Sonarr API Key
-- Radarr API Key
+- A working Sonarr (v3+ API) and Radarr instance the bot can reach over HTTP
+- Root folders already registered in each, matching the paths you configure below
+- Docker, or Python 3.11+
+- A bot token from [@BotFather](https://t.me/BotFather)
 
-## Quick Start
+## Setup
 
-### 1. Clone and Setup
+### 1. Create the bot
+
+Talk to [@BotFather](https://t.me/BotFather):
+
+- `/newbot` — get your `TELEGRAM_TOKEN`
+- `/setinline` — **required** if you want `@yourbot movie Dune` inline search.
+  Off by default, and while off every inline query is silently dropped.
+- `/setprivacy` → **Enable** — recommended. The bot then only receives commands
+  and replies to its own messages, rather than every message in your groups.
+  Everything here works with privacy on. Note that toggling it does not affect
+  groups the bot is already in until it is removed and re-added.
+
+Get your numeric user ID from [@userinfobot](https://t.me/userinfobot).
+
+### 2. Configure
 
 ```bash
-cd /path/to/tg-arr-bot
 cp .env.example .env
 ```
 
-### 2. Configure Environment
+| Variable | Required | Default | Notes |
+|---|---|---|---|
+| `TELEGRAM_TOKEN` | yes | — | From @BotFather |
+| `SONARR_URL` | yes | — | e.g. `http://sonarr:8989` |
+| `SONARR_API_KEY` | yes | — | Sonarr → Settings → General |
+| `RADARR_URL` | yes | — | e.g. `http://radarr:7878` |
+| `RADARR_API_KEY` | yes | — | Radarr → Settings → General |
+| `ALLOWED_USERS` | yes | — | Comma-separated Telegram user IDs |
+| `ALLOWED_CHATS` | no | empty | Comma-separated **group** chat IDs (negative). Every member of a listed group may use the bot. |
+| `QUALITY_PROFILE_ID` | no | `1` | Profile applied to everything added. `1` is usually "Any". |
+| `SONARR_ROOT_SHOWS` | no | `/data/Plex/Shows` | Must be a registered root folder |
+| `SONARR_ROOT_ANIME` | no | `/data/Plex/Anime` | Must be a registered root folder |
+| `RADARR_ROOT_MOVIES` | no | `/data/Plex/Movies` | Must be a registered root folder |
+| `LOG_LEVEL` | no | `INFO` | `DEBUG` also logs message contents |
 
-Edit `.env` with your settings:
+Paths are as **Sonarr and Radarr** see them, not as the host sees them.
 
-```env
-TELEGRAM_TOKEN=your_bot_token_here
-SONARR_API_KEY=your_sonarr_key_here
-RADARR_API_KEY=your_radarr_key_here
-ALLOWED_USERS=123456789,987654321
+### 3. Run
+
+Add the bot to the Compose file that already runs your Sonarr and Radarr, on the
+same network so it can reach them by service name:
+
+```yaml
+  tg-bot:
+    image: ldcanetti/tg-arr-bot:latest   # or: build: .
+    container_name: tg-arr-bot
+    environment:
+      TELEGRAM_TOKEN: ${TELEGRAM_TOKEN}
+      SONARR_URL: http://sonarr:8989
+      SONARR_API_KEY: ${SONARR_API_KEY}
+      RADARR_URL: http://radarr:7878
+      RADARR_API_KEY: ${RADARR_API_KEY}
+      ALLOWED_USERS: ${ALLOWED_USERS}
+      ALLOWED_CHATS: ${ALLOWED_CHATS}
+    restart: unless-stopped
+    networks:
+      - your-existing-network
 ```
-
-To get your Telegram user ID, send `/start` to @userinfobot
-
-### 3. Start Services
 
 ```bash
-docker-compose up -d
+docker compose up -d tg-bot
+docker compose logs -f tg-bot
 ```
 
-This will start:
-- **Bot**: Telegram bot service
-- **Sonarr**: TV show management (http://localhost:8989)
-- **Radarr**: Movie management (http://localhost:7878)
+A healthy start looks like:
 
-### 4. Configure Sonarr & Radarr
-
-1. Open http://localhost:8989 for Sonarr
-2. Open http://localhost:7878 for Radarr
-3. Complete the setup wizard in each application
-4. Generate API keys in settings
-5. Update your `.env` file with the API keys
-
-### 5. Restart Bot
-
-```bash
-docker-compose restart bot
+```
+Bot started successfully!
+Allowed users: [123456789]
+Allowed group chats: [-1001234567890]
+Published 12 commands to Telegram
+Application started
 ```
 
-## Project Structure
+The bundled `docker-compose.yml` in this repo spins up Sonarr and Radarr
+alongside the bot for trying it out from nothing. It is a minimal example, not a
+production layout: it mounts media and downloads as **separate** volumes, which
+forces Sonarr and Radarr to copy imports instead of hardlinking them. For real
+use, mount one shared volume (e.g. `/data`) across your download client and both
+*arr apps.
+
+## Using it in a group
+
+1. Add the bot to the group.
+2. Get the group's chat ID and put it in `ALLOWED_CHATS`. The bot logs the IDs it
+   accepts at startup; `getUpdates` or a bot like @userinfobot will tell you the
+   chat ID.
+3. Restart the bot and have someone send `/start`.
+
+Any member of a listed group is authorized — you do not need to collect
+individual user IDs. Be aware that this means **anyone added to that group can
+add media to your library.**
+
+Negative IDs in `ALLOWED_USERS` are ignored: a chat ID can never match a user ID,
+so group IDs belong in `ALLOWED_CHATS`.
+
+> If a basic group is upgraded to a supergroup its ID changes to a `-100…` form
+> and `ALLOWED_CHATS` will stop matching. The symptom is members suddenly being
+> refused while private chats keep working.
+
+### Inline queries
+
+With inline mode enabled in BotFather, the bot can be used from any chat:
+
+```
+@yourbot movie The Matrix
+@yourbot show Breaking Bad
+@yourbot anime Demon Slayer
+```
+
+Results carry an "➕ Add" button. Inline queries are authorized by
+`ALLOWED_USERS` **only** — Telegram sends no chat ID with them, so there is
+nothing for `ALLOWED_CHATS` to match. Group members should use the commands
+instead.
+
+## Project structure
 
 ```
 tg-arr-bot/
 ├── app/
-│   ├── __init__.py
-│   ├── main.py                 # Bot entry point
-│   ├── config/
-│   │   ├── __init__.py
-│   │   └── settings.py         # Environment configuration
+│   ├── main.py                  # Entry point, handler registration
+│   ├── config/settings.py       # Environment configuration
 │   ├── clients/
-│   │   ├── __init__.py
-│   │   ├── sonarr.py          # Sonarr API client
-│   │   └── radarr.py          # Radarr API client
+│   │   ├── sonarr.py            # Sonarr v3 API client
+│   │   └── radarr.py            # Radarr v3 API client
 │   └── handlers/
-│       ├── __init__.py
-│       ├── general_handlers.py # /start, /help commands
-│       ├── sonarr_handlers.py  # /show, /addshow commands
-│       └── radarr_handlers.py  # /movie, /addmovie commands
-├── docker-compose.yml          # Multi-service orchestration
-├── Dockerfile                  # Bot container image
-├── requirements.txt            # Python dependencies
-├── .env.example               # Environment template
-└── README.md                  # This file
-```
-
-## Environment Variables
-
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `TELEGRAM_TOKEN` | Telegram Bot Token from @BotFather | `123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11` |
-| `SONARR_URL` | Sonarr API base URL | `http://sonarr:8989` |
-| `SONARR_API_KEY` | Sonarr API authentication key | `abc123def456` |
-| `RADARR_URL` | Radarr API base URL | `http://radarr:7878` |
-| `RADARR_API_KEY` | Radarr API authentication key | `xyz789uvm123` |
-| `ALLOWED_USERS` | Comma-separated Telegram user IDs | `123456789,987654321` |
-
-## Accessing Services
-
-After starting docker-compose:
-
-| Service | URL | Port |
-|---------|-----|------|
-| Sonarr | http://localhost:8989 | 8989 |
-| Radarr | http://localhost:7878 | 7878 |
-
-## Usage Examples
-
-### Search for a Movie
-```
-User: /movie The Matrix
-Bot: 🔍 Searching for: The Matrix
-     🎬 Found movies:
-     1. The Matrix (1999)
-        ID: 603
-     2. The Matrix Reloaded (2003)
-        ID: 234
-     ...
-     Use `/addmovie The Matrix` to add a movie.
-
-User: /addmovie The Matrix
-Bot: ✅ Added 'The Matrix' to Radarr!
-```
-
-### Search for a TV Show
-```
-User: /show Breaking Bad
-Bot: 🔍 Searching for: Breaking Bad
-     📺 Found TV shows:
-     1. Breaking Bad (2008)
-        ID: 81189
-     ...
-     Use `/addshow Breaking Bad` to add a show.
-
-User: /addshow Breaking Bad
-Bot: ✅ Added 'Breaking Bad' to Sonarr!
+│       ├── general_handlers.py  # /start, /help, command list, authorization
+│       ├── menu_handlers.py     # /menu, quick keyboard, unknown-command help
+│       ├── sonarr_handlers.py   # /show, /anime, /myshows, /myanime
+│       └── radarr_handlers.py   # /movie, /addmovie, /mymovies
+├── docker-compose.yml           # Example standalone stack (see caveat above)
+├── Dockerfile
+├── requirements.txt
+└── .env.example
 ```
 
 ## Troubleshooting
 
-### Bot not responding
-- Check Telegram token is correct: `TELEGRAM_TOKEN` in `.env`
-- Verify bot is running: `docker-compose logs bot`
-- Ensure user ID is in `ALLOWED_USERS`
+**Bot doesn't respond at all**
+Check `docker compose logs tg-bot`. A bad token fails at startup. Note that only
+one process may poll a given token — a second copy running elsewhere will cause
+both to miss updates.
 
-### Cannot connect to Sonarr/Radarr
-- Verify containers are running: `docker-compose ps`
-- Check API keys are correct
-- Verify URLs match docker service names (e.g., `http://sonarr:8989`)
+**"You don't have permission"**
+Your user ID isn't in `ALLOWED_USERS`, or the group's ID isn't in
+`ALLOWED_CHATS`. The startup log prints both lists as parsed.
 
-### API errors
-- Check Sonarr/Radarr logs: `docker-compose logs sonarr` or `docker-compose logs radarr`
-- Verify API keys have proper permissions
-- Ensure root folders exist in Sonarr/Radarr configuration
+**Adds fail with no obvious error**
+Almost always the root folder. The configured path must exactly match a
+registered root folder in Sonarr/Radarr, as those apps see it. Check
+`GET /api/v3/rootFolder`.
 
-## Logs
+**Everything is added at the wrong quality**
+`QUALITY_PROFILE_ID` defaults to `1`, which is typically the "Any" profile. List
+your profiles with `GET /api/v3/qualityprofile` and set the ID you want.
 
-View bot logs:
+**Inline search does nothing**
+Inline mode is off in BotFather (`/setinline`), or you aren't in `ALLOWED_USERS`.
+
+**Typing `/` shows no command list**
+The list is published on startup; check for "Published 12 commands" in the log.
+Telegram caches it client-side, so reopen the chat.
+
+**The bot sees group messages it shouldn't**
+Privacy mode changes don't apply to groups the bot already belongs to. Remove it
+from the group and add it back.
+
+## Development
+
 ```bash
-docker-compose logs -f bot
+pip install -r requirements.txt
+python -m app.main
 ```
 
-View Sonarr logs:
-```bash
-docker-compose logs -f sonarr
-```
-
-View Radarr logs:
-```bash
-docker-compose logs -f radarr
-```
-
-## Future Enhancements
-
-- [ ] List monitored movies/shows/anime
-- [ ] Remove/unmonitor movies/shows/anime
-- [ ] Download status notifications
-- [ ] Movie/show details with ratings
-- [ ] Configurable root folders per user
-- [ ] Season selection for TV shows
-- [ ] Quality profile selection
-
-## Contributing
-
-Contributions are welcome! Feel free to submit issues and pull requests.
+Settings are read from `.env` via pydantic-settings, so a local run picks up the
+same file the container uses.
 
 ## License
 
-This project is open source and available under the MIT License.
-
-## Support
-
-For issues, feature requests, or questions, please open an issue on the repository.
+MIT.
