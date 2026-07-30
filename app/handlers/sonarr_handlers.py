@@ -11,6 +11,7 @@ from telegram.ext import ContextTypes
 from app.clients.sonarr import SonarrClient
 from app.config.settings import settings
 from app.handlers.general_handlers import is_authorized, reply_in_chunks
+from app.handlers.prompts import send_search_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -93,8 +94,10 @@ async def show_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text("❌ You don't have permission to use this bot.")
         return
 
+    # Tapped from the "/" list rather than typed with a title — ask for one
+    # instead of printing usage at someone who just pressed a button.
     if not context.args:
-        await update.message.reply_text("Please provide a show name. Usage: /show <show_name>")
+        await send_search_prompt(update, "show")
         return
 
     await search_series_and_reply(update, context, " ".join(context.args), anime=False)
@@ -275,7 +278,7 @@ async def anime_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     if not context.args:
-        await update.message.reply_text("Please provide an anime name. Usage: /anime <anime_name>")
+        await send_search_prompt(update, "anime")
         return
 
     await search_series_and_reply(update, context, " ".join(context.args), anime=True)

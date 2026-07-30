@@ -108,6 +108,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "  @YourBotName show <title> - Search TV shows\n"
         "  @YourBotName anime <title> - Search anime\n\n"
         "💡 **Tips**:\n"
+        "  • Tap a command from the / list without typing a title — I'll ask for one\n"
         "  • /menu is the quickest way — just tap and reply\n"
         "  • Inline queries work in any chat, but only for the bot's owners\n"
         "  • Anime goes to your anime folder, shows go to your shows folder\n"

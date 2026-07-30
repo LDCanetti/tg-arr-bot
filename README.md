@@ -22,23 +22,29 @@ request media themselves, without any of them needing access to Sonarr or Radarr
 | Command | What it does |
 |---|---|
 | `/menu` | Button menu — pick a category, reply with a title. No syntax to remember. |
-| `/movie <title>` | Search movies, pick from buttons |
-| `/show <title>` | Search TV shows, pick a result then a monitoring option |
-| `/anime <title>` | Same as `/show`, but filed as anime |
+| `/movie [title]` | Search movies, pick from buttons. No title? It asks for one. |
+| `/show [title]` | Search TV shows, pick a result then a monitoring option |
+| `/anime [title]` | Same as `/show`, but filed as anime |
 | `/mymovies` | List the Radarr library (✅ = has a file, ⏳ = still wanted) |
 | `/myshows` | List non-anime series |
 | `/myanime` | List anime series |
-| `/addmovie <title>` | Skip the menu and add the top match directly |
-| `/addshow <title>` | Alias for `/show` (searches; does not blind-add) |
+| `/addmovie [title]` | Skip the menu and add the top match directly |
+| `/addshow [title]` | Alias for `/show` (searches; does not blind-add) |
 | `/start` | Welcome message plus the quick keyboard |
 | `/hide` | Remove the quick keyboard |
 | `/help` | The above, in chat |
 
-Mistyped commands get a usage reminder with a closest-match suggestion, so
-`/movei` replies "Did you mean /movie?".
-
 The command list is published to Telegram on startup, so typing `/` offers them
 as tappable suggestions in both private chats and groups.
+
+Tapping one of those suggestions sends the command on its own, with no title
+attached. The search commands treat that as the start of a search: they reply
+asking for a title, with the reply box already open and aimed at whoever tapped.
+Type the title, send, and the results come back as buttons. Nothing has to be
+typed by hand.
+
+Mistyped commands get a usage reminder with a closest-match suggestion, so
+`/movei` replies "Did you mean /movie?".
 
 ### How adding works
 
@@ -218,6 +224,7 @@ tg-arr-bot/
 │   │   └── radarr.py            # Radarr v3 API client
 │   └── handlers/
 │       ├── general_handlers.py  # /start, /help, command list, authorization
+│       ├── prompts.py           # "reply with a title" prompts and their routing
 │       ├── menu_handlers.py     # /menu, quick keyboard, unknown-command help
 │       ├── sonarr_handlers.py   # /show, /anime, /myshows, /myanime
 │       └── radarr_handlers.py   # /movie, /addmovie, /mymovies

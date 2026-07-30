@@ -16,7 +16,6 @@ import logging
 from difflib import get_close_matches
 
 from telegram import (
-    ForceReply,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     KeyboardButton,
@@ -27,18 +26,15 @@ from telegram import (
 from telegram.ext import ContextTypes
 
 from app.handlers.general_handlers import BOT_COMMANDS, is_authorized
-from app.handlers.radarr_handlers import my_movies_command, search_movies_and_reply
+from app.handlers.prompts import PROMPT_EMOJI, PROMPTS, send_search_prompt
+from app.handlers.radarr_handlers import (
+    add_top_movie_and_reply,
+    my_movies_command,
+    search_movies_and_reply,
+)
 from app.handlers.sonarr_handlers import list_series, search_series_and_reply
 
 logger = logging.getLogger(__name__)
-
-# Leading emoji doubles as the routing key when the user replies to a prompt.
-PROMPTS = {
-    "movie": "🎬 Reply to this message with a movie title:",
-    "show": "📺 Reply to this message with a TV show title:",
-    "anime": "🎌 Reply to this message with an anime title:",
-}
-_PROMPT_EMOJI = {text.split()[0]: kind for kind, text in PROMPTS.items()}
 
 MAIN_MENU = InlineKeyboardMarkup([
     [InlineKeyboardButton("🎬 Movie", callback_data="menu:movie"),
@@ -133,19 +129,11 @@ async def button_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await query.edit_message_text("📚 Which library?", reply_markup=LIBRARY_MENU)
             return
 
-        prompt = PROMPTS.get(choice)
-        if not prompt:
+        if choice not in PROMPTS:
             await query.answer("❌ Unknown option.", show_alert=True)
             return
 
-        # selective=True so the reply box only pops up for whoever tapped —
-        # it targets users mentioned in the text, hence the mention.
-        user = update.effective_user
-        await query.message.reply_text(
-            f"{prompt.split(' ', 1)[0]} {user.mention_html()} {prompt.split(' ', 1)[1]}",
-            reply_markup=ForceReply(selective=True),
-            parse_mode="HTML",
-        )
+        await send_search_prompt(update, choice)
     except Exception as e:
         logger.error(f"Error in button_menu ({choice}): {e}")
 
@@ -185,7 +173,7 @@ async def handle_prompt_reply(update: Update, context: ContextTypes.DEFAULT_TYPE
     if replied.from_user.id != context.bot.id:
         return
 
-    kind = _PROMPT_EMOJI.get((replied.text or "").split(" ", 1)[0])
+    kind = PROMPT_EMOJI.get((replied.text or "").split(" ", 1)[0])
     if not kind:
         return
 
@@ -202,6 +190,8 @@ async def handle_prompt_reply(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if kind == "movie":
         await search_movies_and_reply(update, context, query)
+    elif kind == "addmovie":
+        await add_top_movie_and_reply(update, context, query)
     else:
         await search_series_and_reply(update, context, query, anime=(kind == "anime"))
 

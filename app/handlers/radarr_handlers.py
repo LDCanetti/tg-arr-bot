@@ -4,6 +4,7 @@ from telegram.ext import ContextTypes
 from app.clients.radarr import RadarrClient
 from app.config.settings import settings
 from app.handlers.general_handlers import is_authorized, reply_in_chunks
+from app.handlers.prompts import send_search_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -21,16 +22,14 @@ async def movie_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text("❌ You don't have permission to use this bot.")
         return
     
-    # Check if a query was provided
+    # Tapped from the "/" list rather than typed with a title — ask for one
+    # instead of printing usage at someone who just pressed a button.
     if not context.args:
-        logger.info(f"movie_command: No arguments provided")
-        await update.message.reply_text(
-            "🎬 Movie search\n\n"
-            "Usage: /movie <movie title>\n"
-            "Example: /movie The Matrix"
-        )
+        logger.info("movie_command: no arguments, prompting for a title")
+        await send_search_prompt(update, "movie")
         return
-    
+
+
     await search_movies_and_reply(update, context, " ".join(context.args))
 
 
@@ -82,38 +81,43 @@ async def add_movie_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
     
     if not context.args:
-        await update.message.reply_text(
-            "🎬 Add Movie\n\n"
-            "Usage: /addmovie <movie title>\n"
-            "Example: /addmovie The Matrix"
-        )
+        await send_search_prompt(update, "addmovie")
         return
-    
-    query = " ".join(context.args)
+
+    await add_top_movie_and_reply(update, context, " ".join(context.args))
+
+
+async def add_top_movie_and_reply(update: Update, context: ContextTypes.DEFAULT_TYPE, query: str) -> None:
+    """Add the best match for a title outright, skipping the picker.
+
+    Shared by /addmovie and its ForceReply prompt, so it replies to
+    effective_message rather than assuming the update carries a command.
+    """
+    message = update.effective_message
     radarr: RadarrClient = context.bot_data.get("radarr_client")
-    
+
     if not radarr:
-        await update.message.reply_text("❌ Radarr client not initialized.")
+        await message.reply_text("❌ Radarr client not initialized.")
         return
-    
+
     results = await radarr.search_movies(query)
-    
+
     if not results:
-        await update.message.reply_text(f"❌ No movies found for: {query}")
+        await message.reply_text(f"❌ No movies found for: {query}")
         return
-    
+
     # Add the first result
     movie = results[0]
     title = movie.get("title", "Unknown")
     tmdb_id = movie.get("tmdbId")
-    
+
     result = await radarr.add_movie(tmdb_id, root_folder_path=settings.radarr_root_movies)
 
     if result:
         # Radarr searches for this movie on add via searchForMovie — no library-wide search.
-        await update.message.reply_text(f"✅ Added '{title}' to Radarr and started searching for it!")
+        await message.reply_text(f"✅ Added '{title}' to Radarr and started searching for it!")
     else:
-        await update.message.reply_text(f"❌ Failed to add '{title}' to Radarr.")
+        await message.reply_text(f"❌ Failed to add '{title}' to Radarr.")
 
 
 async def my_movies_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
