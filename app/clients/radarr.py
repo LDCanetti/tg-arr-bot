@@ -89,7 +89,12 @@ class RadarrClient:
             "rootFolderPath": root_folder_path,
             "qualityProfileId": quality_profile_id,
             "monitored": monitor,
-            "searchForMovie": True,
+            # searchForMovie belongs inside addOptions. At the top level Radarr
+            # drops it as an unknown property, still returns 201, and the movie
+            # sits there unsearched until someone clicks Search by hand.
+            "addOptions": {
+                "searchForMovie": monitor,
+            },
         }
         
         try:

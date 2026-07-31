@@ -114,7 +114,7 @@ async def add_top_movie_and_reply(update: Update, context: ContextTypes.DEFAULT_
     result = await radarr.add_movie(tmdb_id, root_folder_path=settings.radarr_root_movies)
 
     if result:
-        # Radarr searches for this movie on add via searchForMovie — no library-wide search.
+        # Radarr searches for this movie on add via addOptions.searchForMovie — no library-wide search.
         await message.reply_text(f"✅ Added '{title}' to Radarr and started searching for it!")
     else:
         await message.reply_text(f"❌ Failed to add '{title}' to Radarr.")
@@ -190,7 +190,7 @@ async def button_add_movie(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         result = await radarr.add_movie(tmdb_id, root_folder_path=folder_path)
 
         if result:
-            # Radarr searches for this movie on add via searchForMovie — no library-wide search.
+            # Radarr searches for this movie on add via addOptions.searchForMovie — no library-wide search.
             await query.edit_message_text(f"✅ Successfully added '{title}' to Radarr and started searching for it!")
         else:
             await query.answer(f"❌ Failed to add '{title}' to Radarr.", show_alert=True)
