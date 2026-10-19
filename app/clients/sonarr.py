@@ -245,3 +245,62 @@ class SonarrClient:
         except Exception as e:
             logger.error(f"Sonarr get root folders failed: {e}")
             return []
+
+    async def _request(self, method: str, path: str, **kwargs) -> tuple[int, Any]:
+        """Send a request and return (status, parsed body). Status is 0 if it never got a response."""
+        url = f"{self.base_url}{path}"
+        try:
+            async with self._session_ctx() as session:
+                async with session.request(method, url, headers=self.headers, **kwargs) as resp:
+                    if resp.content_type == "application/json":
+                        return resp.status, await resp.json()
+                    return resp.status, await resp.text()
+        except Exception as e:
+            logger.error(f"Sonarr {method} {path} failed: {e}")
+            return 0, None
+
+    async def get_series(self, series_id: int) -> Optional[Dict[str, Any]]:
+        """Get one library series by its Sonarr id, None if it isn't there (any more).
+
+        Raises on any other failure, so an outage isn't mistaken for a deletion.
+        """
+        status, body = await self._request("GET", f"/api/v3/series/{series_id}")
+        if status == 200:
+            return body
+        if status == 404:
+            return None
+        # Anything else (outage, auth, 5xx) must not read as "deleted" — callers
+        # would tell the user it's gone and strip the panel's buttons.
+        raise RuntimeError(f"Sonarr get series failed: {status} - {body}")
+
+    async def update_series(self, series: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """PUT a full series resource back, as Sonarr's own UI does. Files are never moved.
+
+        Changing a season's "monitored" here also flips every episode in that
+        season to match — Sonarr does that server-side, same as the season toggle
+        on the series page.
+        """
+        status, body = await self._request(
+            "PUT", f"/api/v3/series/{series['id']}", json=series, params={"moveFiles": "false"}
+        )
+        if status in (200, 202):
+            return body
+        logger.error(f"Sonarr update series error: {status} - {body}")
+        return None
+
+    async def delete_series(self, series_id: int, delete_files: bool) -> bool:
+        """Remove a series from Sonarr, optionally deleting its folder from disk.
+
+        Mirrors the web UI's delete dialog with "Add List Exclusion" left unticked.
+        aiohttp rejects bools in query params, hence the strings.
+        """
+        params = {
+            "deleteFiles": "true" if delete_files else "false",
+            "addImportListExclusion": "false",
+        }
+        status, body = await self._request("DELETE", f"/api/v3/series/{series_id}", params=params)
+        if status in (200, 204):
+            logger.info(f"Deleted series {series_id} (deleteFiles={delete_files})")
+            return True
+        logger.error(f"Sonarr delete series error: {status} - {body}")
+        return False

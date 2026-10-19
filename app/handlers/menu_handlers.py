@@ -29,10 +29,11 @@ from app.handlers.general_handlers import BOT_COMMANDS, is_authorized
 from app.handlers.prompts import PROMPT_EMOJI, PROMPTS, send_search_prompt
 from app.handlers.radarr_handlers import (
     add_top_movie_and_reply,
+    manage_movie_and_reply,
     my_movies_command,
     search_movies_and_reply,
 )
-from app.handlers.sonarr_handlers import list_series, search_series_and_reply
+from app.handlers.sonarr_handlers import list_series, manage_series_and_reply, search_series_and_reply
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,14 @@ MAIN_MENU = InlineKeyboardMarkup([
      InlineKeyboardButton("📺 Show", callback_data="menu:show")],
     [InlineKeyboardButton("🎌 Anime", callback_data="menu:anime"),
      InlineKeyboardButton("📚 Library", callback_data="menu:library")],
+    [InlineKeyboardButton("⚙️ Manage library", callback_data="menu:manage")],
+])
+
+MANAGE_MENU = InlineKeyboardMarkup([
+    [InlineKeyboardButton("🎬 A movie", callback_data="menu:managemovie"),
+     InlineKeyboardButton("📺 A show", callback_data="menu:manageshow")],
+    [InlineKeyboardButton("🎌 An anime", callback_data="menu:manageanime")],
+    [InlineKeyboardButton("◀️ Back", callback_data="menu:home")],
 ])
 
 LIBRARY_MENU = InlineKeyboardMarkup([
@@ -107,7 +116,7 @@ async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def button_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle the main menu buttons: menu:<movie|show|anime|library|home>."""
+    """Handle the main menu buttons: menu:<movie|show|anime|library|manage|home|prompt kind>."""
     query = update.callback_query
     if not query or not query.data:
         return
@@ -127,6 +136,13 @@ async def button_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
         if choice == "library":
             await query.edit_message_text("📚 Which library?", reply_markup=LIBRARY_MENU)
+            return
+
+        if choice == "manage":
+            await query.edit_message_text(
+                "⚙️ What do you want to manage? Monitor, unmonitor or remove it next.",
+                reply_markup=MANAGE_MENU,
+            )
             return
 
         if choice not in PROMPTS:
@@ -192,6 +208,10 @@ async def handle_prompt_reply(update: Update, context: ContextTypes.DEFAULT_TYPE
         await search_movies_and_reply(update, context, query)
     elif kind == "addmovie":
         await add_top_movie_and_reply(update, context, query)
+    elif kind == "managemovie":
+        await manage_movie_and_reply(update, context, query)
+    elif kind in ("manageshow", "manageanime"):
+        await manage_series_and_reply(update, context, query, anime=(kind == "manageanime"))
     else:
         await search_series_and_reply(update, context, query, anime=(kind == "anime"))
 
@@ -228,6 +248,7 @@ async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         "  /movie <title> — search for a movie",
         "  /show <title> — search for a TV show",
         "  /anime <title> — search for anime",
+        "  /managemovie, /manageshow, /manageanime <title> — monitor, unmonitor or remove",
         "  /menu — pick from buttons instead of typing",
         "  /help — full command list",
     ]

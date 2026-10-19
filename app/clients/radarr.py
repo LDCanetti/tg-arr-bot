@@ -205,3 +205,57 @@ class RadarrClient:
         except Exception as e:
             logger.error(f"Radarr get root folders failed: {e}")
             return []
+
+    async def _request(self, method: str, path: str, **kwargs) -> tuple[int, Any]:
+        """Send a request and return (status, parsed body). Status is 0 if it never got a response."""
+        url = f"{self.base_url}{path}"
+        try:
+            async with self._session_ctx() as session:
+                async with session.request(method, url, headers=self.headers, **kwargs) as resp:
+                    if resp.content_type == "application/json":
+                        return resp.status, await resp.json()
+                    return resp.status, await resp.text()
+        except Exception as e:
+            logger.error(f"Radarr {method} {path} failed: {e}")
+            return 0, None
+
+    async def get_movie(self, movie_id: int) -> Optional[Dict[str, Any]]:
+        """Get one library movie by its Radarr id, None if it isn't there (any more).
+
+        Raises on any other failure, so an outage isn't mistaken for a deletion.
+        """
+        status, body = await self._request("GET", f"/api/v3/movie/{movie_id}")
+        if status == 200:
+            return body
+        if status == 404:
+            return None
+        # Anything else (outage, auth, 5xx) must not read as "deleted" — callers
+        # would tell the user it's gone and strip the panel's buttons.
+        raise RuntimeError(f"Radarr get movie failed: {status} - {body}")
+
+    async def update_movie(self, movie: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """PUT a full movie resource back, as Radarr's edit dialog does. Files are never moved."""
+        status, body = await self._request(
+            "PUT", f"/api/v3/movie/{movie['id']}", json=movie, params={"moveFiles": "false"}
+        )
+        if status in (200, 202):
+            return body
+        logger.error(f"Radarr update movie error: {status} - {body}")
+        return None
+
+    async def delete_movie(self, movie_id: int, delete_files: bool) -> bool:
+        """Remove a movie from Radarr, optionally deleting its folder from disk.
+
+        Mirrors the web UI's delete dialog with "Add List Exclusion" left unticked.
+        aiohttp rejects bools in query params, hence the strings.
+        """
+        params = {
+            "deleteFiles": "true" if delete_files else "false",
+            "addImportExclusion": "false",
+        }
+        status, body = await self._request("DELETE", f"/api/v3/movie/{movie_id}", params=params)
+        if status in (200, 204):
+            logger.info(f"Deleted movie {movie_id} (deleteFiles={delete_files})")
+            return True
+        logger.error(f"Radarr delete movie error: {status} - {body}")
+        return False

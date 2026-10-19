@@ -1,8 +1,9 @@
 # tg-arr-bot — Telegram Sonarr & Radarr Bot
 
-A Telegram bot for adding movies, TV shows and anime to an existing Sonarr/Radarr
-setup. Search from a chat, pick a result from inline buttons, and the bot creates
-the entry and kicks off a search for it.
+A Telegram bot for adding and managing movies, TV shows and anime in an existing
+Sonarr/Radarr setup. Search from a chat, pick a result from inline buttons, and the
+bot creates the entry and kicks off a search for it. Things already in the library
+can be monitored, unmonitored (per season, for shows) or removed from the same chat.
 
 Designed to be dropped into a group so everyone who uses your media server can
 request media themselves, without any of them needing access to Sonarr or Radarr.
@@ -13,6 +14,7 @@ request media themselves, without any of them needing access to Sonarr or Radarr
 - 📺 **Sonarr** — search and add TV shows
 - 🎌 **Anime** — added as `seriesType: Anime` (absolute episode numbering) in its own root folder
 - 🎛️ **Full monitoring choice** — all 11 of Sonarr's monitor options, not just "everything"
+- ⚙️ **Library management** — monitor/unmonitor movies, shows and individual seasons; remove with or without deleting files
 - 👥 **Group access** — authorize a whole group chat, or individual users
 - 🔎 **Tap-to-search** — a button menu so members never have to learn the commands
 - ⚡ **Async** throughout, one reused HTTP session per service
@@ -30,6 +32,9 @@ request media themselves, without any of them needing access to Sonarr or Radarr
 | `/myanime` | List anime series |
 | `/addmovie [title]` | Skip the menu and add the top match directly |
 | `/addshow [title]` | Alias for `/show` (searches; does not blind-add) |
+| `/managemovie [title]` | Find a movie in the library: monitor, unmonitor, search or remove it |
+| `/manageshow [title]` | Same for a show, plus per-season monitoring |
+| `/manageanime [title]` | Same as `/manageshow`, looking in anime first |
 | `/start` | Welcome message plus the quick keyboard |
 | `/hide` | Remove the quick keyboard |
 | `/help` | The above, in chat |
@@ -71,6 +76,39 @@ own "Add Series" dialog:
 
 Searches are scoped to the item just added — the bot does not trigger a
 library-wide "search all missing", which would hammer your indexers.
+
+### Managing the library
+
+`/managemovie`, `/manageshow` and `/manageanime` look the title up in **your
+library** (not TMDb/TVDB) and open a panel of buttons. A loose match is fine —
+`/manageshow brekaing bad` still finds it. The same panel opens when a `/movie`,
+`/show` or inline search turns up something you already have: those results are
+marked ⚙️ and tapping one manages it instead of trying to add it twice. `/menu`
+has a ⚙️ Manage library button too.
+
+| Button | What it does |
+|---|---|
+| 👁️ Monitor / 🚫 Unmonitor | Flips the movie's or show's monitored flag, like the bookmark icon in the web UI |
+| 📂 Seasons | One toggle per season (✅ monitored, ⬜ not), plus monitor/unmonitor all |
+| 🔍 Search | Searches for this movie, or for the show's monitored episodes |
+| 🗑️ Remove | Asks first — see below |
+
+Season toggles behave like Sonarr's own: changing a season's monitoring flips
+every episode in it to match. Monitoring a season of an unmonitored show also
+monitors the show, since otherwise nothing would download. "Monitor all" leaves
+Specials alone.
+
+**Removing** shows the folder and how much is on disk, then asks the same
+question as the web UI's delete dialog:
+
+- 🗑️ **Remove, keep files** — drops it from Sonarr/Radarr, files stay on the drive
+- 💥 **Remove and delete files** — also deletes the folder from disk. Not undoable.
+- ↩️ **Cancel**
+
+"Add list exclusion" is always left off, so a removed item can be re-added later.
+
+Any authorized user can manage — and delete — anything in the library, including
+everyone in an `ALLOWED_CHATS` group.
 
 ## Prerequisites
 
@@ -151,7 +189,7 @@ A healthy start looks like:
 Bot started successfully!
 Allowed users: [123456789]
 Allowed group chats: [-1001234567890]
-Published 12 commands to Telegram
+Published 15 commands to Telegram
 Application started
 ```
 
@@ -188,7 +226,7 @@ copy, doubling disk use while you seed. Keep one mount.
 
 Any member of a listed group is authorized — you do not need to collect
 individual user IDs. Be aware that this means **anyone added to that group can
-add media to your library.**
+add media to your library — and remove it, including deleting files.**
 
 Negative IDs in `ALLOWED_USERS` are ignored: a chat ID can never match a user ID,
 so group IDs belong in `ALLOWED_CHATS`.
@@ -207,7 +245,7 @@ With inline mode enabled in BotFather, the bot can be used from any chat:
 @yourbot anime Demon Slayer
 ```
 
-Results carry an "➕ Add" button. Inline queries are authorized by
+Results carry an "➕ Add" button, or "⚙️ Manage" for things already in the library. Inline queries are authorized by
 `ALLOWED_USERS` **only** — Telegram sends no chat ID with them, so there is
 nothing for `ALLOWED_CHATS` to match. Group members should use the commands
 instead.
@@ -226,8 +264,8 @@ tg-arr-bot/
 │       ├── general_handlers.py  # /start, /help, command list, authorization
 │       ├── prompts.py           # "reply with a title" prompts and their routing
 │       ├── menu_handlers.py     # /menu, quick keyboard, unknown-command help
-│       ├── sonarr_handlers.py   # /show, /anime, /myshows, /myanime
-│       └── radarr_handlers.py   # /movie, /addmovie, /mymovies
+│       ├── sonarr_handlers.py   # /show, /anime, /myshows, /myanime, /manageshow, /manageanime
+│       └── radarr_handlers.py   # /movie, /addmovie, /mymovies, /managemovie
 ├── docker-compose.yml           # Example standalone stack (see caveat above)
 ├── Dockerfile
 ├── requirements.txt
@@ -258,7 +296,7 @@ your profiles with `GET /api/v3/qualityprofile` and set the ID you want.
 Inline mode is off in BotFather (`/setinline`), or you aren't in `ALLOWED_USERS`.
 
 **Typing `/` shows no command list**
-The list is published on startup; check for "Published 12 commands" in the log.
+The list is published on startup; check for "Published 15 commands" in the log.
 Telegram caches it client-side, so reopen the chat.
 
 **The bot sees group messages it shouldn't**

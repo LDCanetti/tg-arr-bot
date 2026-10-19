@@ -21,6 +21,9 @@ PROMPTS = {
     "show": "📺 Reply to this message with a TV show title:",
     "anime": "🎌 Reply to this message with an anime title:",
     "addmovie": "⚡ Reply to this message with a movie title — I'll add the top match:",
+    "managemovie": "🎞️ Reply to this message with the title of a movie in the library:",
+    "manageshow": "🛠️ Reply to this message with the title of a show in the library:",
+    "manageanime": "🏯 Reply to this message with the title of an anime in the library:",
 }
 PROMPT_EMOJI = {text.split()[0]: kind for kind, text in PROMPTS.items()}
 

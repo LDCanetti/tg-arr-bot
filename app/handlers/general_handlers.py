@@ -1,5 +1,8 @@
 import logging
+from difflib import get_close_matches
+
 from telegram import BotCommand, Update
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 logger = logging.getLogger(__name__)
@@ -16,6 +19,9 @@ BOT_COMMANDS = [
     BotCommand("myanime", "🎌 List anime in the library"),
     BotCommand("addmovie", "🎬 Add the top match for a movie title"),
     BotCommand("addshow", "📺 Search for a show by title"),
+    BotCommand("managemovie", "⚙️ Monitor, unmonitor or remove a movie"),
+    BotCommand("manageshow", "⚙️ Monitor seasons of, or remove, a TV show"),
+    BotCommand("manageanime", "⚙️ Monitor seasons of, or remove, an anime"),
     BotCommand("help", "ℹ️ Show the command list"),
     BotCommand("start", "👋 Show the welcome message and buttons"),
     BotCommand("hide", "⌨️ Hide the button keyboard"),
@@ -52,6 +58,44 @@ async def reply_in_chunks(message, header: str, lines: list[str]) -> None:
         chunk += ("\n" if chunk else "") + line
     if chunk.strip():
         await message.reply_text(chunk)
+
+
+def format_size(num_bytes: int) -> str:
+    """Human-readable size, e.g. 4.2 GB."""
+    size = float(num_bytes or 0)
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024:
+            return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
+
+
+def find_in_library(items: list[dict], query: str, limit: int = 10) -> list[dict]:
+    """Match a typed title against library entries.
+
+    Substring first, so "dune" finds both Dune films; then a fuzzy pass so a
+    typo like "brekaing bad" still lands.
+    """
+    needle = query.casefold().strip()
+    hits = [i for i in items if needle in (i.get("title") or "").casefold()]
+    if not hits:
+        # A list per title: remakes and same-named films must all survive.
+        by_title: dict[str, list[dict]] = {}
+        for i in items:
+            by_title.setdefault((i.get("title") or "").casefold(), []).append(i)
+        hits = [i for t in get_close_matches(needle, list(by_title), n=limit, cutoff=0.6) for i in by_title[t]]
+    # Exact title first, then alphabetical.
+    hits.sort(key=lambda i: ((i.get("title") or "").casefold() != needle, (i.get("sortTitle") or "").lower()))
+    return hits[:limit]
+
+
+async def safe_edit(query, text: str, reply_markup=None) -> None:
+    """Edit a button's message, ignoring Telegram's "message is not modified" on double-taps."""
+    try:
+        await query.edit_message_text(text, reply_markup=reply_markup)
+    except BadRequest as e:
+        if "not modified" not in str(e).lower():
+            raise
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -103,6 +147,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "🎌 **Anime (Sonarr)**:\n"
         "  /anime <title> - Search for anime\n"
         "  /myanime - List all monitored anime\n\n"
+        "⚙️ **Manage your library**:\n"
+        "  /managemovie <title> - Monitor, unmonitor, search or remove a movie\n"
+        "  /manageshow <title> - Same for a show, plus per-season monitoring\n"
+        "  /manageanime <title> - Same for an anime\n"
+        "  Removing asks whether to also delete the files from the drive.\n\n"
         "💡 **Inline Queries** (use in any chat):\n"
         "  @YourBotName movie <title> - Search movies\n"
         "  @YourBotName show <title> - Search TV shows\n"
@@ -110,6 +159,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "💡 **Tips**:\n"
         "  • Tap a command from the / list without typing a title — I'll ask for one\n"
         "  • /menu is the quickest way — just tap and reply\n"
+        "  • Searching for something already in the library offers ⚙️ Manage instead of Add\n"
         "  • Inline queries work in any chat, but only for the bot's owners\n"
         "  • Anime goes to your anime folder, shows go to your shows folder\n"
     )
