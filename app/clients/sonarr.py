@@ -1,43 +1,16 @@
-import aiohttp
 import logging
-from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
 
+from app.clients.base import ArrClient
 from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
 
-class SonarrClient:
+class SonarrClient(ArrClient):
     """Sonarr API client for TV series management."""
-    
-    def __init__(self, base_url: str, api_key: str):
-        """Initialize Sonarr client.
-        
-        Args:
-            base_url: Base URL of Sonarr instance (e.g., http://sonarr:8989)
-            api_key: Sonarr API key
-        """
-        self.base_url = base_url.rstrip('/')
-        self.api_key = api_key
-        self.headers = {"X-Api-Key": api_key}
-        self._session: Optional[aiohttp.ClientSession] = None
 
-    def _get_session(self) -> aiohttp.ClientSession:
-        """Return a lazily-created, reused HTTP session."""
-        if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession()
-        return self._session
-
-    @asynccontextmanager
-    async def _session_ctx(self):
-        """Yield the shared session without closing it on exit."""
-        yield self._get_session()
-
-    async def close(self) -> None:
-        """Close the shared HTTP session (call on shutdown)."""
-        if self._session and not self._session.closed:
-            await self._session.close()
+    service = "Sonarr"
 
     async def search_series(self, query: str) -> List[Dict[str, Any]]:
         """Search for TV series by title.
@@ -150,25 +123,18 @@ class SonarrClient:
             logger.error(f"Sonarr add series failed: {e}")
             return None
     
-    async def get_monitored_series(self) -> List[Dict[str, Any]]:
-        """Get list of monitored TV series.
-        
+    async def get_monitored_series(self) -> Optional[List[Dict[str, Any]]]:
+        """Get every series in the library.
+
         Returns:
-            List of monitored series
+            The library (possibly empty), or None if Sonarr couldn't be reached —
+            callers must not report an outage as "nothing in the library".
         """
-        url = f"{self.base_url}/api/v3/series"
-        
-        try:
-            async with self._session_ctx() as session:
-                async with session.get(url, headers=self.headers) as resp:
-                    if resp.status == 200:
-                        return await resp.json()
-                    else:
-                        logger.error(f"Sonarr get series error: {resp.status}")
-                        return []
-        except Exception as e:
-            logger.error(f"Sonarr get series failed: {e}")
-            return []
+        status, body = await self._request("GET", "/api/v3/series")
+        if status == 200:
+            return body
+        logger.error(f"Sonarr get series error: {status} - {body}")
+        return None
     
     async def trigger_series_search(self, series_id: int) -> bool:
         """Trigger an immediate search for a specific series.
@@ -245,3 +211,50 @@ class SonarrClient:
         except Exception as e:
             logger.error(f"Sonarr get root folders failed: {e}")
             return []
+
+
+    async def get_series(self, series_id: int) -> Optional[Dict[str, Any]]:
+        """Get one library series by its Sonarr id, None if it isn't there (any more).
+
+        Raises on any other failure, so an outage isn't mistaken for a deletion.
+        """
+        status, body = await self._request("GET", f"/api/v3/series/{series_id}")
+        if status == 200:
+            return body
+        if status == 404:
+            return None
+        # Anything else (outage, auth, 5xx) must not read as "deleted" — callers
+        # would tell the user it's gone and strip the panel's buttons.
+        raise RuntimeError(f"Sonarr get series failed: {status} - {body}")
+
+    async def update_series(self, series: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """PUT a full series resource back, as Sonarr's own UI does. Files are never moved.
+
+        Changing a season's "monitored" here also flips every episode in that
+        season to match — Sonarr does that server-side, same as the season toggle
+        on the series page.
+        """
+        status, body = await self._request(
+            "PUT", f"/api/v3/series/{series['id']}", json=series, params={"moveFiles": "false"}
+        )
+        if status in (200, 202):
+            return body
+        logger.error(f"Sonarr update series error: {status} - {body}")
+        return None
+
+    async def delete_series(self, series_id: int, delete_files: bool) -> bool:
+        """Remove a series from Sonarr, optionally deleting its folder from disk.
+
+        Mirrors the web UI's delete dialog with "Add List Exclusion" left unticked.
+        aiohttp rejects bools in query params, hence the strings.
+        """
+        params = {
+            "deleteFiles": "true" if delete_files else "false",
+            "addImportListExclusion": "false",
+        }
+        status, body = await self._request("DELETE", f"/api/v3/series/{series_id}", params=params)
+        if status in (200, 204):
+            logger.info(f"Deleted series {series_id} (deleteFiles={delete_files})")
+            return True
+        logger.error(f"Sonarr delete series error: {status} - {body}")
+        return False

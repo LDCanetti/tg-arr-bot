@@ -38,11 +38,16 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ secrets.DOCKER_USERNAME }}/tg-arr-bot
+          # {{branch}} is empty on pull_request and tag events, which turned the
+          # sha tag into "-<sha>" — an invalid reference that fails the build.
+          # So the branch-prefixed sha tag is for branch pushes only, and PR
+          # builds (validated, never pushed) get a pr-<number> tag instead.
           tags: |
             type=ref,event=branch
+            type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix={{branch}}-
+            type=sha,prefix={{branch}}-,enable=${{ github.event_name == 'push' && github.ref_type == 'branch' }}
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value={{date 'YYYY.MM.DD'}}
       

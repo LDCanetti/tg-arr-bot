@@ -3,7 +3,16 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InlineQ
 from telegram.ext import ContextTypes
 from app.clients.radarr import RadarrClient
 from app.config.settings import settings
-from app.handlers.general_handlers import is_authorized, reply_in_chunks
+from app.handlers.general_handlers import (
+    MAX_LIBRARY_MATCHES,
+    find_in_library,
+    format_size,
+    is_authorized,
+    is_owner,
+    reply_in_chunks,
+    safe_edit,
+    which_one_text,
+)
 from app.handlers.prompts import send_search_prompt
 
 logger = logging.getLogger(__name__)
@@ -60,6 +69,13 @@ async def search_movies_and_reply(update: Update, context: ContextTypes.DEFAULT_
         year = movie.get("year", "N/A")
         tmdb_id = movie.get("tmdbId", "N/A")
 
+        # Lookup results already in the library carry their Radarr id. Adding
+        # those again would only fail, so open the manage panel instead.
+        if movie.get("id"):
+            keyboard.append([InlineKeyboardButton(f"⚙️ {title} ({year}) · in library",
+                                                  callback_data=f"mv:view:{movie['id']}")])
+            continue
+
         # Stashed for the callback, which only carries the id.
         context.user_data[f"movie_{tmdb_id}"] = {
             "tmdb_id": tmdb_id, "title": title, "folder_path": settings.radarr_root_movies
@@ -67,7 +83,7 @@ async def search_movies_and_reply(update: Update, context: ContextTypes.DEFAULT_
 
         keyboard.append([InlineKeyboardButton(f"📽️ {title} ({year})", callback_data=f"add_movie:{tmdb_id}")])
 
-    response = f"🎬 Found {len(results)} movies for: {query}\n\nClick a movie to add it:"
+    response = f"🎬 Found {len(results)} movies for: {query}\n\nTap a movie to add it (⚙️ = already in the library, tap to manage):"
     await message.reply_text(response, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
@@ -111,6 +127,17 @@ async def add_top_movie_and_reply(update: Update, context: ContextTypes.DEFAULT_
     title = movie.get("title", "Unknown")
     tmdb_id = movie.get("tmdbId")
 
+    if movie.get("id"):
+        # The lookup result is a partial resource — on Radarr v5 it has no
+        # size on disk — so build the panel from the library copy.
+        try:
+            movie = await radarr.get_movie(movie["id"]) or movie
+        except RuntimeError as e:
+            logger.error(f"add_top_movie_and_reply: {e}")
+        text, keyboard = movie_panel(movie)
+        await message.reply_text(f"ℹ️ Already in the library.\n\n{text}", reply_markup=keyboard)
+        return
+
     result = await radarr.add_movie(tmdb_id, root_folder_path=settings.radarr_root_movies)
 
     if result:
@@ -137,6 +164,9 @@ async def my_movies_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
 
     movies = await radarr.get_monitored_movies()
+    if movies is None:
+        await message.reply_text("❌ Couldn't reach Radarr. Try again in a minute.")
+        return
     if not movies:
         await message.reply_text("🎬 No movies in your Radarr library yet.")
         return
@@ -244,9 +274,12 @@ async def inline_query_radarr(update: Update, context: ContextTypes.DEFAULT_TYPE
             data_key = f"inline_movie_{tmdb_id}"
             context.user_data[data_key] = {"tmdb_id": tmdb_id, "title": title}
             
-            # Create button to add movie with simple callback_data format
-            callback_data = f"add_movie:{tmdb_id}"
-            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("➕ Add Movie", callback_data=callback_data)]])
+            # Already in the library -> manage it; otherwise offer to add it.
+            if movie.get("id"):
+                button = InlineKeyboardButton("⚙️ Manage", callback_data=f"mv:view:{movie['id']}")
+            else:
+                button = InlineKeyboardButton("➕ Add Movie", callback_data=f"add_movie:{tmdb_id}")
+            keyboard = InlineKeyboardMarkup([[button]])
             
             # Format result text
             result_text = f"📽️ <b>{title}</b> ({year})\n"
@@ -257,15 +290,215 @@ async def inline_query_radarr(update: Update, context: ContextTypes.DEFAULT_TYPE
                 InlineQueryResultArticle(
                     id=f"movie_{tmdb_id}_{idx}",
                     title=f"{title} ({year})",
-                    description=overview[:100] if overview else "Add this movie to Radarr",
+                    description=("✅ In library · " if movie.get("id") else "") + (overview[:100] if overview else "Add this movie to Radarr"),
                     input_message_content=InputTextMessageContent(result_text, parse_mode="HTML"),
                     reply_markup=keyboard,
                     thumbnail_url="https://img.icons8.com/external-others-biso-biso/256/external-movie-entertainment-media-others-biso-biso.png"
                 )
             )
         
-        await query.answer(inline_results, cache_time=300)
+        # Short cache: each result's Add/Manage button reflects the library
+        # right now, and Telegram would replay a stale one to everyone.
+        await query.answer(inline_results, cache_time=5)
     
     except Exception as e:
         logger.error(f"Error in inline movie query: {e}")
 
+
+
+# --- Library management -----------------------------------------------------
+#
+# Buttons carry mv:<action>:<radarr id>. That's Radarr's own id rather than the
+# TMDb one, and nothing is stashed in user_data, so a panel keeps working after
+# a restart and for anyone else in the group who taps it.
+
+def _movie_label(movie: dict) -> str:
+    return f"{movie.get('title', 'Unknown')} ({movie.get('year', 'N/A')})"
+
+
+def _movie_size(movie: dict) -> int:
+    # Radarr v5 moved sizeOnDisk under statistics; older versions have it top-level.
+    return movie.get("sizeOnDisk") or (movie.get("statistics") or {}).get("sizeOnDisk") or 0
+
+
+# Remove-confirm and the two remove buttons.
+REMOVE_ACTIONS = ("rm", "rmk", "rmd")
+
+
+def movie_panel(movie: dict) -> tuple[str, InlineKeyboardMarkup]:
+    """The manage view for one library movie."""
+    movie_id = movie["id"]
+    monitored = movie.get("monitored", False)
+
+    lines = [
+        f"🎬 {_movie_label(movie)}",
+        f"Monitored: {'✅ yes' if monitored else '🚫 no'}",
+    ]
+    if movie.get("hasFile"):
+        lines.append(f"File: ✅ downloaded ({format_size(_movie_size(movie))})")
+    else:
+        lines.append("File: ⏳ not downloaded yet")
+
+    toggle = (InlineKeyboardButton("🚫 Unmonitor", callback_data=f"mv:unmon:{movie_id}") if monitored
+              else InlineKeyboardButton("👁️ Monitor", callback_data=f"mv:mon:{movie_id}"))
+    keyboard = InlineKeyboardMarkup([
+        [toggle, InlineKeyboardButton("🔍 Search now", callback_data=f"mv:search:{movie_id}")],
+        [InlineKeyboardButton("🗑️ Remove", callback_data=f"mv:rm:{movie_id}")],
+    ])
+    return "\n".join(lines), keyboard
+
+
+def _movie_remove_confirm(movie: dict) -> tuple[str, InlineKeyboardMarkup]:
+    """Ask what Radarr's delete dialog asks: drop the entry, or the files on disk too."""
+    movie_id = movie["id"]
+    lines = [f"🗑️ Remove {_movie_label(movie)} from Radarr?", ""]
+    if movie.get("path"):
+        lines.append(f"📁 {movie['path']}")
+    if movie.get("hasFile"):
+        lines.append(f"💾 {format_size(_movie_size(movie))} on disk")
+    else:
+        lines.append("💾 Nothing downloaded yet")
+    lines += ["", "Also delete the downloaded files from the drive?"]
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🗑️ Remove, keep files", callback_data=f"mv:rmk:{movie_id}")],
+        [InlineKeyboardButton("💥 Remove and delete files", callback_data=f"mv:rmd:{movie_id}")],
+        [InlineKeyboardButton("↩️ Cancel", callback_data=f"mv:view:{movie_id}")],
+    ])
+    return "\n".join(lines), keyboard
+
+
+async def manage_movie_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /managemovie <title> — find a library movie and open its manage panel."""
+    if not update.message:
+        return
+
+    if not is_authorized(update, context):
+        await update.message.reply_text("❌ You don't have permission to use this bot.")
+        return
+
+    if not context.args:
+        await send_search_prompt(update, "managemovie")
+        return
+
+    await manage_movie_and_reply(update, context, " ".join(context.args))
+
+
+async def manage_movie_and_reply(update: Update, context: ContextTypes.DEFAULT_TYPE, query: str) -> None:
+    """Look a title up in the Radarr library (not TMDb) and offer the matches.
+
+    Shared by /managemovie and its ForceReply prompt.
+    """
+    message = update.effective_message
+    radarr: RadarrClient = context.bot_data.get("radarr_client")
+    if not radarr:
+        await message.reply_text("❌ Radarr client not initialized.")
+        return
+
+    library = await radarr.get_monitored_movies()
+    if library is None:
+        await message.reply_text("❌ Couldn't reach Radarr. Try again in a minute.")
+        return
+
+    matches = find_in_library(query, library)
+
+    if not matches:
+        await message.reply_text(f"❌ No movie matching '{query}' in the library. Use /movie to add one.")
+        return
+
+    if len(matches) == 1:
+        text, keyboard = movie_panel(matches[0])
+        await message.reply_text(text, reply_markup=keyboard)
+        return
+
+    keyboard = [[InlineKeyboardButton(f"🎬 {_movie_label(m)}", callback_data=f"mv:view:{m['id']}")]
+                for m in matches[:MAX_LIBRARY_MATCHES]]
+    await message.reply_text(which_one_text("Which movie?", len(matches)), reply_markup=InlineKeyboardMarkup(keyboard))
+
+
+async def button_manage_movie(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle the manage panel buttons: mv:<view|mon|unmon|search|rm|rmk|rmd>:<radarr id>."""
+    query = update.callback_query
+    if not query or not query.data:
+        return
+
+    if not is_authorized(update, context):
+        await query.answer("❌ You don't have permission to use this bot.", show_alert=True)
+        return
+
+    try:
+        _, action, raw_id = query.data.split(":", 2)
+        movie_id = int(raw_id)
+    except ValueError:
+        await query.answer("❌ Invalid button data.", show_alert=True)
+        return
+
+    # Removing (and especially deleting files) is owners-only: an allowed group
+    # can manage the library, but not erase it.
+    if action in REMOVE_ACTIONS and not is_owner(update, context):
+        await query.answer("🔒 Only the bot's owners can remove movies.", show_alert=True)
+        return
+
+    radarr: RadarrClient = context.bot_data.get("radarr_client")
+    if not radarr:
+        await query.answer("❌ Radarr client not initialized.", show_alert=True)
+        return
+
+    try:
+        # Always re-read: the panel may be hours old, or edited in Radarr since.
+        movie = await radarr.get_movie(movie_id)
+        if not movie:
+            await query.answer()
+            await safe_edit(query, "❌ That movie is no longer in the Radarr library.")
+            return
+
+        title = _movie_label(movie)
+        toast = None
+
+        if action in ("mon", "unmon"):
+            movie["monitored"] = action == "mon"
+            updated = await radarr.update_movie(movie)
+            if not updated:
+                await query.answer(f"❌ Couldn't update {title}.", show_alert=True)
+                return
+            movie = updated
+            toast = "👁️ Monitored" if action == "mon" else "🚫 Unmonitored"
+            logger.info(f"user {update.effective_user.id} set movie {movie_id} monitored={movie['monitored']}")
+
+        elif action == "search":
+            if not await radarr.trigger_movie_search(movie_id):
+                await query.answer("❌ Couldn't start the search.", show_alert=True)
+                return
+            toast = f"🔍 Searching for {title}"
+
+        elif action == "rm":
+            await query.answer()
+            text, keyboard = _movie_remove_confirm(movie)
+            await safe_edit(query, text, keyboard)
+            return
+
+        elif action in ("rmk", "rmd"):
+            delete_files = action == "rmd"
+            await query.answer("⏳ Removing...")
+            if not await radarr.delete_movie(movie_id, delete_files=delete_files):
+                await safe_edit(query, f"❌ Failed to remove {title} from Radarr.")
+                return
+            logger.info(f"user {update.effective_user.id} removed movie {movie_id} ({title}), deleteFiles={delete_files}")
+            suffix = "and deleted its files from the drive" if delete_files else "— files left on the drive"
+            await safe_edit(query, f"🗑️ Removed {title} from Radarr {suffix}.")
+            return
+
+        elif action != "view":
+            await query.answer("❌ Unknown option.", show_alert=True)
+            return
+
+        await query.answer(toast)
+        text, keyboard = movie_panel(movie)
+        await safe_edit(query, text, keyboard)
+
+    except Exception as e:
+        logger.error(f"Error in button_manage_movie ({query.data}): {e}")
+        try:
+            await query.answer("❌ An error occurred.", show_alert=True)
+        except Exception:
+            pass

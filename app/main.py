@@ -20,6 +20,7 @@ from app.config.settings import settings
 from app.clients.sonarr import SonarrClient
 from app.clients.radarr import RadarrClient
 from app.handlers.general_handlers import BOT_COMMANDS, start_command, help_command
+from app.handlers.announce_handlers import announce_command, button_announce, whats_new_command
 from app.handlers.menu_handlers import (
     button_library,
     button_menu,
@@ -28,8 +29,8 @@ from app.handlers.menu_handlers import (
     menu_command,
     unknown_command,
 )
-from app.handlers.radarr_handlers import movie_command, add_movie_command, button_add_movie, inline_query_radarr, my_movies_command
-from app.handlers.sonarr_handlers import show_command, add_show_command, button_add_show, button_monitor_show, button_add_anime, button_monitor_anime, inline_query_sonarr, anime_command, inline_query_anime, my_shows_command, my_anime_command
+from app.handlers.radarr_handlers import movie_command, add_movie_command, button_add_movie, button_manage_movie, inline_query_radarr, manage_movie_command, my_movies_command
+from app.handlers.sonarr_handlers import show_command, add_show_command, button_add_show, button_monitor_show, button_add_anime, button_monitor_anime, inline_query_sonarr, anime_command, inline_query_anime, my_shows_command, my_anime_command, manage_show_command, manage_anime_command, button_manage_series
 
 # Configure logging
 logging.basicConfig(
@@ -108,6 +109,10 @@ def main() -> None:
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("menu", menu_command))
         application.add_handler(CommandHandler("hide", hide_keyboard_command))
+        application.add_handler(CommandHandler("whatsnew", whats_new_command))
+        # Owner-only and left out of BOT_COMMANDS, so it isn't offered to everyone.
+        application.add_handler(CommandHandler("announce", announce_command))
+        application.add_handler(CallbackQueryHandler(button_announce, pattern=r'^announce:'))
 
         # Tap-to-search menu
         application.add_handler(CallbackQueryHandler(button_menu, pattern=r'^menu:'))
@@ -117,7 +122,9 @@ def main() -> None:
         application.add_handler(CommandHandler("movie", movie_command))
         application.add_handler(CommandHandler("addmovie", add_movie_command))
         application.add_handler(CommandHandler("mymovies", my_movies_command))
+        application.add_handler(CommandHandler("managemovie", manage_movie_command))
         application.add_handler(CallbackQueryHandler(button_add_movie, pattern=r'^add_movie:'))
+        application.add_handler(CallbackQueryHandler(button_manage_movie, pattern=r'^mv:'))
         application.add_handler(InlineQueryHandler(inline_query_radarr, pattern=r'(?i)^movie\s'))
 
         # Sonarr handlers
@@ -125,12 +132,16 @@ def main() -> None:
         application.add_handler(CommandHandler("addshow", add_show_command))
         application.add_handler(CommandHandler("myshows", my_shows_command))
         application.add_handler(CallbackQueryHandler(button_add_show, pattern=r'^select_show:'))
+        application.add_handler(CommandHandler("manageshow", manage_show_command))
         application.add_handler(CallbackQueryHandler(button_monitor_show, pattern=r'^monitor_show_'))
+        # Shows and anime share the manage panel.
+        application.add_handler(CallbackQueryHandler(button_manage_series, pattern=r'^tv:'))
         application.add_handler(InlineQueryHandler(inline_query_sonarr, pattern=r'(?i)^show\s'))
 
         # Anime handlers
         application.add_handler(CommandHandler("anime", anime_command))
         application.add_handler(CommandHandler("myanime", my_anime_command))
+        application.add_handler(CommandHandler("manageanime", manage_anime_command))
         application.add_handler(CallbackQueryHandler(button_add_anime, pattern=r'^select_anime:'))
         application.add_handler(CallbackQueryHandler(button_monitor_anime, pattern=r'^monitor_anime_'))
         application.add_handler(InlineQueryHandler(inline_query_anime, pattern=r'(?i)^anime\s'))
