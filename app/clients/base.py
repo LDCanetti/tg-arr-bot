@@ -6,6 +6,9 @@ from typing import Optional, Any
 
 logger = logging.getLogger(__name__)
 
+# 50 x 500 records. Sonarr has one record per episode, so this is generous.
+_MAX_QUEUE_PAGES = 50
+
 
 class ArrClient:
     """Session handling and requests shared by the Sonarr and Radarr clients."""
@@ -61,12 +64,28 @@ class ArrClient:
     QUEUE_INCLUDES: dict = {}
 
     async def get_queue(self) -> Optional[list]:
-        """Every item in the Activity queue, or None if the service couldn't be reached."""
-        params = {"page": "1", "pageSize": "1000", **self.QUEUE_INCLUDES}
-        status, body = await self._request("GET", "/api/v3/queue", params=params)
-        if status == 200:
-            return body.get("records", [])
-        logger.error(f"{self.service} get queue error: {status} - {body}")
+        """Every item in the Activity queue, or None if the service couldn't be reached.
+
+        Pages through it: Sonarr has one record per episode, so a few season
+        packs can fill a page.
+        """
+        records: dict = {}
+        page = 1
+        while page <= _MAX_QUEUE_PAGES:
+            params = {"page": str(page), "pageSize": "500", **self.QUEUE_INCLUDES}
+            status, body = await self._request("GET", "/api/v3/queue", params=params)
+            if status != 200:
+                logger.error(f"{self.service} get queue error: {status} - {body}")
+                return None
+            batch = body.get("records", [])
+            # Keyed by id: the queue can shift while it's paged, repeating a record.
+            records.update((r.get("id"), r) for r in batch)
+            if not batch or page * 500 >= body.get("totalRecords", 0):
+                return list(records.values())
+            page += 1
+        # Callers treat a missing download as resolved, so a partial queue is
+        # reported as unreadable rather than returned.
+        logger.error(f"{self.service} queue has more than {_MAX_QUEUE_PAGES * 500} records; not reading it")
         return None
 
     async def get_manual_import(self, download_id: str) -> Optional[list]:
@@ -96,13 +115,15 @@ class ArrClient:
         Kept short: updates are handled one at a time, so this wait holds up the bot.
         """
         command = None
-        for _ in range(int(timeout / 2)):
+        polls = int(timeout / 2)
+        for attempt in range(polls):
             status, body = await self._request("GET", f"/api/v3/command/{command_id}")
             if status == 200:
                 command = body
                 if body.get("status") in ("completed", "failed", "aborted", "cancelled", "orphaned"):
                     break
-            await asyncio.sleep(2)
+            if attempt < polls - 1:
+                await asyncio.sleep(2)
         return command
 
     async def remove_queue_item(self, queue_id: int, blocklist: bool, search_again: bool) -> bool:
