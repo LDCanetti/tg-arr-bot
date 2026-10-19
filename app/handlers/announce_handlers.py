@@ -19,7 +19,11 @@ logger = logging.getLogger(__name__)
 # Update this with each release worth telling people about.
 WHATS_NEW = (
     "🆕 What's new\n\n"
-    "You can now manage what's already in the library, not just add to it:\n\n"
+    "📥 Stuck downloads no longer sit unnoticed. When Sonarr or Radarr finishes a download but "
+    "won't import it without help (not an upgrade, couldn't match the episode…), the bot's owners "
+    "get an alert with buttons to review the files, import them anyway, or reject the download "
+    "and search for another. /imports lists everything waiting.\n\n"
+    "In case you missed it — you can also manage what's already in the library:\n\n"
     "⚙️ /managemovie <title> — monitor, unmonitor, search or remove a movie\n"
     "⚙️ /manageshow <title> — the same for a show, plus monitor or unmonitor individual seasons\n"
     "⚙️ /manageanime <title> — the same for anime\n\n"

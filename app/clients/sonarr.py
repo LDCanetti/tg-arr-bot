@@ -11,6 +11,7 @@ class SonarrClient(ArrClient):
     """Sonarr API client for TV series management."""
 
     service = "Sonarr"
+    QUEUE_INCLUDES = {"includeSeries": "true", "includeEpisode": "true"}
 
     async def search_series(self, query: str) -> List[Dict[str, Any]]:
         """Search for TV series by title.

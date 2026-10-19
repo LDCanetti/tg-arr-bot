@@ -21,6 +21,7 @@ from app.clients.sonarr import SonarrClient
 from app.clients.radarr import RadarrClient
 from app.handlers.general_handlers import BOT_COMMANDS, start_command, help_command
 from app.handlers.announce_handlers import announce_command, button_announce, whats_new_command
+from app.handlers.import_handlers import button_import, check_imports, imports_command
 from app.handlers.menu_handlers import (
     button_library,
     button_menu,
@@ -103,6 +104,7 @@ def main() -> None:
         application.bot_data["radarr_client"] = radarr_client
         application.bot_data["allowed_users"] = settings.allowed_user_ids
         application.bot_data["allowed_chats"] = settings.allowed_chat_ids
+        application.bot_data["import_alert_chats"] = settings.import_alert_chat_ids
         
         # Register command handlers
         application.add_handler(CommandHandler("start", start_command))
@@ -113,6 +115,17 @@ def main() -> None:
         # Owner-only and left out of BOT_COMMANDS, so it isn't offered to everyone.
         application.add_handler(CommandHandler("announce", announce_command))
         application.add_handler(CallbackQueryHandler(button_announce, pattern=r'^announce:'))
+
+        # Downloads stuck waiting on manual import
+        application.add_handler(CommandHandler("imports", imports_command))
+        application.add_handler(CallbackQueryHandler(button_import, pattern=r'^imp:'))
+        if settings.import_check_minutes > 0:
+            application.job_queue.run_repeating(
+                check_imports,
+                interval=settings.import_check_minutes * 60,
+                first=60,  # let the bot finish starting first
+                name="import_check",
+            )
 
         # Tap-to-search menu
         application.add_handler(CallbackQueryHandler(button_menu, pattern=r'^menu:'))
@@ -165,6 +178,11 @@ def main() -> None:
         logger.info("Bot started successfully!")
         logger.info(f"Allowed users: {settings.allowed_user_ids}")
         logger.info(f"Allowed group chats: {settings.allowed_chat_ids}")
+        if settings.import_check_minutes > 0:
+            logger.info(f"Checking for stuck imports every {settings.import_check_minutes} min; "
+                        f"alerting {settings.import_alert_chat_ids}")
+        else:
+            logger.info("Import alerts are off (IMPORT_CHECK_MINUTES=0)")
         
         # Start the Bot
         application.run_polling()
