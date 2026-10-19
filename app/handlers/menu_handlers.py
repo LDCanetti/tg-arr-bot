@@ -4,8 +4,8 @@ Lives in its own module because it drives both the Sonarr and Radarr handlers,
 and importing it from either of those would be circular.
 
 The flow is deliberately reply-based rather than stateful: tapping a button
-sends a ForceReply prompt, and the user's reply is routed by reading the emoji
-on the prompt they replied to. That survives a container restart (Watchtower
+sends a ForceReply prompt, and the user's reply is routed by reading the prompt
+they replied to (see prompt_kind). That survives a container restart (Watchtower
 recreates this container nightly) and keeps two users searching in the same
 group from clobbering each other. It also works under Telegram privacy mode,
 which withholds ordinary group chatter from bots but always delivers replies to
@@ -26,7 +26,7 @@ from telegram import (
 from telegram.ext import ContextTypes
 
 from app.handlers.general_handlers import BOT_COMMANDS, is_authorized
-from app.handlers.prompts import PROMPT_EMOJI, PROMPTS, send_search_prompt
+from app.handlers.prompts import PROMPTS, prompt_kind, send_search_prompt
 from app.handlers.radarr_handlers import (
     add_top_movie_and_reply,
     manage_movie_and_reply,
@@ -183,13 +183,13 @@ async def handle_prompt_reply(update: Update, context: ContextTypes.DEFAULT_TYPE
     message = update.effective_message
     replied = message.reply_to_message if message else None
 
-    # Only our own prompts, identified by the emoji they open with.
+    # Only our own prompts, identified by their emoji and wording.
     if not replied or not replied.from_user or not replied.from_user.is_bot:
         return
     if replied.from_user.id != context.bot.id:
         return
 
-    kind = PROMPT_EMOJI.get((replied.text or "").split(" ", 1)[0])
+    kind = prompt_kind(replied.text or "")
     if not kind:
         return
 

@@ -10,7 +10,16 @@ from telegram.ext import ContextTypes
 
 from app.clients.sonarr import SonarrClient
 from app.config.settings import settings
-from app.handlers.general_handlers import find_in_library, format_size, is_authorized, reply_in_chunks, safe_edit
+from app.handlers.general_handlers import (
+    MAX_LIBRARY_MATCHES,
+    find_in_library,
+    format_size,
+    is_authorized,
+    is_owner,
+    reply_in_chunks,
+    safe_edit,
+    which_one_text,
+)
 from app.handlers.prompts import send_search_prompt
 
 logger = logging.getLogger(__name__)
@@ -244,6 +253,9 @@ async def list_series(update: Update, context: ContextTypes.DEFAULT_TYPE, anime:
         return
 
     series = await client.get_monitored_series()
+    if series is None:
+        await message.reply_text("❌ Couldn't reach Sonarr. Try again in a minute.")
+        return
     filtered = [s for s in series if (s.get("seriesType", "").lower() == "anime") == anime]
 
     emoji = "🎌" if anime else "📺"
@@ -396,7 +408,9 @@ async def _inline_search_series(update: Update, context: ContextTypes.DEFAULT_TY
                 )
             )
 
-        await update.inline_query.answer(results, cache_time=300)
+        # Short cache: each result's Add/Manage button reflects the library
+        # right now, and Telegram would replay a stale one to everyone.
+        await update.inline_query.answer(results, cache_time=5)
 
     except Exception as e:
         logger.error(f"Error in inline query: {e}")
@@ -432,6 +446,10 @@ def _season_name(number: int) -> str:
     return "Specials" if number == 0 else f"Season {number}"
 
 
+# Remove-confirm and the two remove buttons.
+REMOVE_ACTIONS = ("rm", "rmk", "rmd")
+
+
 def series_panel(series: dict) -> tuple[str, InlineKeyboardMarkup]:
     """The manage view for one library series."""
     series_id = series["id"]
@@ -461,6 +479,9 @@ def series_panel(series: dict) -> tuple[str, InlineKeyboardMarkup]:
     return "\n".join(lines), keyboard
 
 
+_MAX_SEASON_BUTTONS = 90
+
+
 def _seasons_panel(series: dict) -> tuple[str, InlineKeyboardMarkup]:
     """One toggle button per season, two to a row."""
     series_id = series["id"]
@@ -474,7 +495,10 @@ def _seasons_panel(series: dict) -> tuple[str, InlineKeyboardMarkup]:
         label = f"{mark} {_season_name(number)} · {stats.get('episodeFileCount', 0)}/{stats.get('totalEpisodeCount', 0)}"
         buttons.append(InlineKeyboardButton(label, callback_data=f"tv:st:{series_id}:{number}"))
     # Telegram allows 100 buttons per message; leave room for the footer rows.
-    rows = [buttons[i:i + 2] for i in range(0, min(len(buttons), 90), 2)]
+    # Past that, keep the newest seasons — they're the ones people change.
+    hidden = max(0, len(buttons) - _MAX_SEASON_BUTTONS)
+    buttons = buttons[hidden:]
+    rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
     rows += [
         [InlineKeyboardButton("✅ Monitor all", callback_data=f"tv:sall:{series_id}"),
          InlineKeyboardButton("⬜ Unmonitor all", callback_data=f"tv:snone:{series_id}")],
@@ -485,6 +509,9 @@ def _seasons_panel(series: dict) -> tuple[str, InlineKeyboardMarkup]:
         f"📂 Seasons of {_series_label(series)}",
         "Tap a season to toggle monitoring (✅ monitored, ⬜ not). Numbers are files on disk / episodes.",
     ]
+    if hidden:
+        lines += ["", f"ℹ️ The oldest {hidden} seasons have no button here (too many for one message). "
+                      "Monitor all / Unmonitor all still covers them."]
     if not series.get("monitored"):
         lines += ["", "⚠️ The show itself is unmonitored, so nothing will download. "
                       "Monitoring a season monitors the show too."]
@@ -555,8 +582,12 @@ async def manage_series_and_reply(update: Update, context: ContextTypes.DEFAULT_
         return
 
     library = await client.get_monitored_series()
+    if library is None:
+        await message.reply_text("❌ Couldn't reach Sonarr. Try again in a minute.")
+        return
+
     same_kind = [s for s in library if ((s.get("seriesType") or "").lower() == "anime") == anime]
-    matches = find_in_library(same_kind, query) or find_in_library(library, query)
+    matches = find_in_library(query, same_kind, library)
 
     if not matches:
         noun, command = ("anime", "anime") if anime else ("show", "show")
@@ -569,8 +600,8 @@ async def manage_series_and_reply(update: Update, context: ContextTypes.DEFAULT_
         return
 
     keyboard = [[InlineKeyboardButton(f"{_series_emoji(s)} {_series_label(s)}", callback_data=f"tv:view:{s['id']}")]
-                for s in matches]
-    await message.reply_text("Which one?", reply_markup=InlineKeyboardMarkup(keyboard))
+                for s in matches[:MAX_LIBRARY_MATCHES]]
+    await message.reply_text(which_one_text("Which one?", len(matches)), reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def button_manage_series(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -594,6 +625,12 @@ async def button_manage_series(update: Update, context: ContextTypes.DEFAULT_TYP
         season_number = int(parts[3]) if action == "st" else None
     except (IndexError, ValueError):
         await query.answer("❌ Invalid button data.", show_alert=True)
+        return
+
+    # Removing (and especially deleting files) is owners-only: an allowed group
+    # can manage the library, but not erase it.
+    if action in REMOVE_ACTIONS and not is_owner(update, context):
+        await query.answer("🔒 Only the bot's owners can remove shows.", show_alert=True)
         return
 
     client: SonarrClient = context.bot_data.get("sonarr_client")

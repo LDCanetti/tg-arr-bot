@@ -1,43 +1,16 @@
-import aiohttp
 import logging
-from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
 
+from app.clients.base import ArrClient
 from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
 
-class SonarrClient:
+class SonarrClient(ArrClient):
     """Sonarr API client for TV series management."""
-    
-    def __init__(self, base_url: str, api_key: str):
-        """Initialize Sonarr client.
-        
-        Args:
-            base_url: Base URL of Sonarr instance (e.g., http://sonarr:8989)
-            api_key: Sonarr API key
-        """
-        self.base_url = base_url.rstrip('/')
-        self.api_key = api_key
-        self.headers = {"X-Api-Key": api_key}
-        self._session: Optional[aiohttp.ClientSession] = None
 
-    def _get_session(self) -> aiohttp.ClientSession:
-        """Return a lazily-created, reused HTTP session."""
-        if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession()
-        return self._session
-
-    @asynccontextmanager
-    async def _session_ctx(self):
-        """Yield the shared session without closing it on exit."""
-        yield self._get_session()
-
-    async def close(self) -> None:
-        """Close the shared HTTP session (call on shutdown)."""
-        if self._session and not self._session.closed:
-            await self._session.close()
+    service = "Sonarr"
 
     async def search_series(self, query: str) -> List[Dict[str, Any]]:
         """Search for TV series by title.
@@ -150,25 +123,18 @@ class SonarrClient:
             logger.error(f"Sonarr add series failed: {e}")
             return None
     
-    async def get_monitored_series(self) -> List[Dict[str, Any]]:
-        """Get list of monitored TV series.
-        
+    async def get_monitored_series(self) -> Optional[List[Dict[str, Any]]]:
+        """Get every series in the library.
+
         Returns:
-            List of monitored series
+            The library (possibly empty), or None if Sonarr couldn't be reached —
+            callers must not report an outage as "nothing in the library".
         """
-        url = f"{self.base_url}/api/v3/series"
-        
-        try:
-            async with self._session_ctx() as session:
-                async with session.get(url, headers=self.headers) as resp:
-                    if resp.status == 200:
-                        return await resp.json()
-                    else:
-                        logger.error(f"Sonarr get series error: {resp.status}")
-                        return []
-        except Exception as e:
-            logger.error(f"Sonarr get series failed: {e}")
-            return []
+        status, body = await self._request("GET", "/api/v3/series")
+        if status == 200:
+            return body
+        logger.error(f"Sonarr get series error: {status} - {body}")
+        return None
     
     async def trigger_series_search(self, series_id: int) -> bool:
         """Trigger an immediate search for a specific series.
@@ -246,18 +212,6 @@ class SonarrClient:
             logger.error(f"Sonarr get root folders failed: {e}")
             return []
 
-    async def _request(self, method: str, path: str, **kwargs) -> tuple[int, Any]:
-        """Send a request and return (status, parsed body). Status is 0 if it never got a response."""
-        url = f"{self.base_url}{path}"
-        try:
-            async with self._session_ctx() as session:
-                async with session.request(method, url, headers=self.headers, **kwargs) as resp:
-                    if resp.content_type == "application/json":
-                        return resp.status, await resp.json()
-                    return resp.status, await resp.text()
-        except Exception as e:
-            logger.error(f"Sonarr {method} {path} failed: {e}")
-            return 0, None
 
     async def get_series(self, series_id: int) -> Optional[Dict[str, Any]]:
         """Get one library series by its Sonarr id, None if it isn't there (any more).

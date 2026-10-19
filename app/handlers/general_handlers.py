@@ -22,6 +22,7 @@ BOT_COMMANDS = [
     BotCommand("managemovie", "⚙️ Monitor, unmonitor or remove a movie"),
     BotCommand("manageshow", "⚙️ Monitor seasons of, or remove, a TV show"),
     BotCommand("manageanime", "⚙️ Monitor seasons of, or remove, an anime"),
+    BotCommand("whatsnew", "🆕 See what changed in the latest update"),
     BotCommand("help", "ℹ️ Show the command list"),
     BotCommand("start", "👋 Show the welcome message and buttons"),
     BotCommand("hide", "⌨️ Hide the button keyboard"),
@@ -29,6 +30,9 @@ BOT_COMMANDS = [
 
 # Telegram hard-caps a single message at 4096 characters.
 _TELEGRAM_MAX = 4000
+
+# How many library matches the manage commands offer as buttons.
+MAX_LIBRARY_MATCHES = 10
 
 
 def is_authorized(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -46,6 +50,16 @@ def is_authorized(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         return True
 
     return False
+
+
+def is_owner(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Owners are the ALLOWED_USERS — not everyone in an allowed group.
+
+    Gates the irreversible actions (removing media, deleting files) and
+    broadcasting, which group members shouldn't be able to do.
+    """
+    user = update.effective_user
+    return bool(user and user.id in context.bot_data.get("allowed_users", []))
 
 
 async def reply_in_chunks(message, header: str, lines: list[str]) -> None:
@@ -70,23 +84,46 @@ def format_size(num_bytes: int) -> str:
     return f"{size:.1f} TB"
 
 
-def find_in_library(items: list[dict], query: str, limit: int = 10) -> list[dict]:
-    """Match a typed title against library entries.
+def find_in_library(query: str, *pools: list[dict]) -> list[dict]:
+    """Match a typed title against library entries, best match first.
 
-    Substring first, so "dune" finds both Dune films; then a fuzzy pass so a
-    typo like "brekaing bad" still lands.
+    Pools are searched in order of preference — e.g. anime, then the whole
+    library for /manageanime. Every pool gets a substring pass before any gets a
+    fuzzy one, so a real match in a later pool beats a near-miss in an earlier
+    one. Substring hits rank exact title, then prefix, then the rest; fuzzy hits
+    keep difflib's closeness order, so "brekaing bad" still lands.
+
+    Returns every match; callers decide how many to show.
     """
     needle = query.casefold().strip()
-    hits = [i for i in items if needle in (i.get("title") or "").casefold()]
-    if not hits:
+
+    def title(item: dict) -> str:
+        return (item.get("title") or "").casefold()
+
+    for pool in pools:
+        hits = [i for i in pool if needle in title(i)]
+        if hits:
+            hits.sort(key=lambda i: (title(i) != needle, not title(i).startswith(needle),
+                                     (i.get("sortTitle") or "").lower()))
+            return hits
+
+    for pool in pools:
         # A list per title: remakes and same-named films must all survive.
         by_title: dict[str, list[dict]] = {}
-        for i in items:
-            by_title.setdefault((i.get("title") or "").casefold(), []).append(i)
-        hits = [i for t in get_close_matches(needle, list(by_title), n=limit, cutoff=0.6) for i in by_title[t]]
-    # Exact title first, then alphabetical.
-    hits.sort(key=lambda i: ((i.get("title") or "").casefold() != needle, (i.get("sortTitle") or "").lower()))
-    return hits[:limit]
+        for i in pool:
+            by_title.setdefault(title(i), []).append(i)
+        close = get_close_matches(needle, list(by_title), n=10, cutoff=0.6)
+        if close:
+            return [i for t in close for i in by_title[t]]
+
+    return []
+
+
+def which_one_text(question: str, total: int) -> str:
+    """Heading for a list of library matches, saying so when some were cut off."""
+    if total <= MAX_LIBRARY_MATCHES:
+        return question
+    return f"{question}\n\nShowing the best {MAX_LIBRARY_MATCHES} of {total} matches — type more of the title to narrow it down."
 
 
 async def safe_edit(query, text: str, reply_markup=None) -> None:
@@ -135,7 +172,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "🔎 **Easiest way**:\n"
         "  /menu - Pick what to search from buttons, no typing\n"
         "  /start - Show the button keyboard under the text box\n"
-        "  /hide - Put that keyboard away again\n\n"
+        "  /hide - Put that keyboard away again\n"
+        "  /whatsnew - What changed in the latest update\n\n"
         "🎬 **Radarr (Movies)**:\n"
         "  /movie <title> - Search for movies\n"
         "  /addmovie <title> - Add a movie to monitor\n"
@@ -151,7 +189,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "  /managemovie <title> - Monitor, unmonitor, search or remove a movie\n"
         "  /manageshow <title> - Same for a show, plus per-season monitoring\n"
         "  /manageanime <title> - Same for an anime\n"
-        "  Removing asks whether to also delete the files from the drive.\n\n"
+        "  Removing (owners only) asks whether to also delete the files from the drive.\n\n"
         "💡 **Inline Queries** (use in any chat):\n"
         "  @YourBotName movie <title> - Search movies\n"
         "  @YourBotName show <title> - Search TV shows\n"

@@ -35,6 +35,8 @@ request media themselves, without any of them needing access to Sonarr or Radarr
 | `/managemovie [title]` | Find a movie in the library: monitor, unmonitor, search or remove it |
 | `/manageshow [title]` | Same for a show, plus per-season monitoring |
 | `/manageanime [title]` | Same as `/manageshow`, looking in anime first |
+| `/whatsnew` | Release notes for the latest update |
+| `/announce` | Owners only (`ALLOWED_USERS`): send the release notes to every allowed group and user. Not in the `/` list. |
 | `/start` | Welcome message plus the quick keyboard |
 | `/hide` | Remove the quick keyboard |
 | `/help` | The above, in chat |
@@ -107,8 +109,24 @@ question as the web UI's delete dialog:
 
 "Add list exclusion" is always left off, so a removed item can be re-added later.
 
-Any authorized user can manage — and delete — anything in the library, including
-everyone in an `ALLOWED_CHATS` group.
+**Only `ALLOWED_USERS` can remove.** Members of an `ALLOWED_CHATS` group can
+monitor, unmonitor and search, but tapping Remove gets them "Only the bot's
+owners can remove…". Deleting files can't be undone, so it stays with the
+people you listed by ID.
+
+### Announcing an update
+
+After deploying a release, an owner sends `/announce`. The bot shows a preview of
+the release notes and how many chats will get them, with **📣 Send** and
+**✖️ Cancel** buttons. Send posts the notes to every `ALLOWED_CHATS` group and
+privately to every `ALLOWED_USERS` member, then reports any it couldn't reach.
+A private message only arrives if that user has pressed Start with the bot at
+least once; Telegram doesn't let bots message anyone first.
+
+It is manual on purpose. The bot keeps no state and Watchtower recreates the
+container nightly, so announcing automatically on startup would repeat every day.
+The notes live in `WHATS_NEW` in `app/handlers/announce_handlers.py`; edit them
+for each release.
 
 ## Prerequisites
 
@@ -189,7 +207,7 @@ A healthy start looks like:
 Bot started successfully!
 Allowed users: [123456789]
 Allowed group chats: [-1001234567890]
-Published 15 commands to Telegram
+Published 16 commands to Telegram
 Application started
 ```
 
@@ -226,7 +244,8 @@ copy, doubling disk use while you seed. Keep one mount.
 
 Any member of a listed group is authorized — you do not need to collect
 individual user IDs. Be aware that this means **anyone added to that group can
-add media to your library — and remove it, including deleting files.**
+add media to your library and change what's monitored.** Removing media and
+deleting files stays limited to `ALLOWED_USERS`.
 
 Negative IDs in `ALLOWED_USERS` are ignored: a chat ID can never match a user ID,
 so group IDs belong in `ALLOWED_CHATS`.
@@ -258,12 +277,14 @@ tg-arr-bot/
 │   ├── main.py                  # Entry point, handler registration
 │   ├── config/settings.py       # Environment configuration
 │   ├── clients/
+│   │   ├── base.py              # Shared HTTP session and request helper
 │   │   ├── sonarr.py            # Sonarr v3 API client
 │   │   └── radarr.py            # Radarr v3 API client
 │   └── handlers/
 │       ├── general_handlers.py  # /start, /help, command list, authorization
 │       ├── prompts.py           # "reply with a title" prompts and their routing
 │       ├── menu_handlers.py     # /menu, quick keyboard, unknown-command help
+│       ├── announce_handlers.py # /whatsnew, owner-only /announce broadcast
 │       ├── sonarr_handlers.py   # /show, /anime, /myshows, /myanime, /manageshow, /manageanime
 │       └── radarr_handlers.py   # /movie, /addmovie, /mymovies, /managemovie
 ├── docker-compose.yml           # Example standalone stack (see caveat above)
@@ -296,7 +317,7 @@ your profiles with `GET /api/v3/qualityprofile` and set the ID you want.
 Inline mode is off in BotFather (`/setinline`), or you aren't in `ALLOWED_USERS`.
 
 **Typing `/` shows no command list**
-The list is published on startup; check for "Published 15 commands" in the log.
+The list is published on startup; check for "Published 16 commands" in the log.
 Telegram caches it client-side, so reopen the chat.
 
 **The bot sees group messages it shouldn't**

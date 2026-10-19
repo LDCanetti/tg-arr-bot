@@ -1,43 +1,16 @@
-import aiohttp
 import logging
-from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any
 
+from app.clients.base import ArrClient
 from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
 
-class RadarrClient:
+class RadarrClient(ArrClient):
     """Radarr API client for movie management."""
-    
-    def __init__(self, base_url: str, api_key: str):
-        """Initialize Radarr client.
-        
-        Args:
-            base_url: Base URL of Radarr instance (e.g., http://radarr:7878)
-            api_key: Radarr API key
-        """
-        self.base_url = base_url.rstrip('/')
-        self.api_key = api_key
-        self.headers = {"X-Api-Key": api_key}
-        self._session: Optional[aiohttp.ClientSession] = None
 
-    def _get_session(self) -> aiohttp.ClientSession:
-        """Return a lazily-created, reused HTTP session."""
-        if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession()
-        return self._session
-
-    @asynccontextmanager
-    async def _session_ctx(self):
-        """Yield the shared session without closing it on exit."""
-        yield self._get_session()
-
-    async def close(self) -> None:
-        """Close the shared HTTP session (call on shutdown)."""
-        if self._session and not self._session.closed:
-            await self._session.close()
+    service = "Radarr"
 
     async def search_movies(self, query: str) -> List[Dict[str, Any]]:
         """Search for movies by title.
@@ -110,25 +83,18 @@ class RadarrClient:
             logger.error(f"Radarr add movie failed: {e}")
             return None
     
-    async def get_monitored_movies(self) -> List[Dict[str, Any]]:
-        """Get list of monitored movies.
-        
+    async def get_monitored_movies(self) -> Optional[List[Dict[str, Any]]]:
+        """Get every movie in the library.
+
         Returns:
-            List of monitored movies
+            The library (possibly empty), or None if Radarr couldn't be reached —
+            callers must not report an outage as "nothing in the library".
         """
-        url = f"{self.base_url}/api/v3/movie"
-        
-        try:
-            async with self._session_ctx() as session:
-                async with session.get(url, headers=self.headers) as resp:
-                    if resp.status == 200:
-                        return await resp.json()
-                    else:
-                        logger.error(f"Radarr get movies error: {resp.status}")
-                        return []
-        except Exception as e:
-            logger.error(f"Radarr get movies failed: {e}")
-            return []
+        status, body = await self._request("GET", "/api/v3/movie")
+        if status == 200:
+            return body
+        logger.error(f"Radarr get movies error: {status} - {body}")
+        return None
     
     async def trigger_movie_search(self, movie_id: int) -> bool:
         """Trigger an immediate search for a specific movie.
@@ -206,18 +172,6 @@ class RadarrClient:
             logger.error(f"Radarr get root folders failed: {e}")
             return []
 
-    async def _request(self, method: str, path: str, **kwargs) -> tuple[int, Any]:
-        """Send a request and return (status, parsed body). Status is 0 if it never got a response."""
-        url = f"{self.base_url}{path}"
-        try:
-            async with self._session_ctx() as session:
-                async with session.request(method, url, headers=self.headers, **kwargs) as resp:
-                    if resp.content_type == "application/json":
-                        return resp.status, await resp.json()
-                    return resp.status, await resp.text()
-        except Exception as e:
-            logger.error(f"Radarr {method} {path} failed: {e}")
-            return 0, None
 
     async def get_movie(self, movie_id: int) -> Optional[Dict[str, Any]]:
         """Get one library movie by its Radarr id, None if it isn't there (any more).

@@ -20,6 +20,7 @@ from app.config.settings import settings
 from app.clients.sonarr import SonarrClient
 from app.clients.radarr import RadarrClient
 from app.handlers.general_handlers import BOT_COMMANDS, start_command, help_command
+from app.handlers.announce_handlers import announce_command, button_announce, whats_new_command
 from app.handlers.menu_handlers import (
     button_library,
     button_menu,
@@ -108,6 +109,10 @@ def main() -> None:
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("menu", menu_command))
         application.add_handler(CommandHandler("hide", hide_keyboard_command))
+        application.add_handler(CommandHandler("whatsnew", whats_new_command))
+        # Owner-only and left out of BOT_COMMANDS, so it isn't offered to everyone.
+        application.add_handler(CommandHandler("announce", announce_command))
+        application.add_handler(CallbackQueryHandler(button_announce, pattern=r'^announce:'))
 
         # Tap-to-search menu
         application.add_handler(CallbackQueryHandler(button_menu, pattern=r'^menu:'))

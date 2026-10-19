@@ -14,8 +14,8 @@ from telegram import ForceReply, Update
 
 logger = logging.getLogger(__name__)
 
-# The leading emoji doubles as the routing key when the user replies, so each
-# kind needs its own. See handle_prompt_reply.
+# The leading emoji and the wording together route the user's reply, so each
+# kind needs its own. See prompt_kind and handle_prompt_reply.
 PROMPTS = {
     "movie": "🎬 Reply to this message with a movie title:",
     "show": "📺 Reply to this message with a TV show title:",
@@ -25,7 +25,21 @@ PROMPTS = {
     "manageshow": "🛠️ Reply to this message with the title of a show in the library:",
     "manageanime": "🏯 Reply to this message with the title of an anime in the library:",
 }
-PROMPT_EMOJI = {text.split()[0]: kind for kind, text in PROMPTS.items()}
+
+
+def prompt_kind(text: str) -> str | None:
+    """Which prompt a bot message is, or None if it isn't one.
+
+    Sent prompts read "<emoji> <mention> <rest>", so match both the emoji and
+    the fixed wording after the mention. The emoji alone isn't enough: panels
+    and result lists open with the same 🎬/📺/🎌, and a reply to one of those
+    must not be taken as a search.
+    """
+    for kind, prompt in PROMPTS.items():
+        emoji, rest = prompt.split(" ", 1)
+        if text.startswith(emoji + " ") and text.endswith(rest):
+            return kind
+    return None
 
 
 async def send_search_prompt(update: Update, kind: str) -> None:
@@ -47,7 +61,7 @@ async def send_search_prompt(update: Update, kind: str) -> None:
     @mention when they have a username, and where neither can target them, open
     the box for the whole chat rather than for no one.
 
-    The emoji has to stay first either way — it is what routes the reply.
+    The emoji has to stay first and the wording last — prompt_kind routes on both.
     """
     message = update.effective_message
     user = update.effective_user

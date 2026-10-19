@@ -3,7 +3,16 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InlineQ
 from telegram.ext import ContextTypes
 from app.clients.radarr import RadarrClient
 from app.config.settings import settings
-from app.handlers.general_handlers import find_in_library, format_size, is_authorized, reply_in_chunks, safe_edit
+from app.handlers.general_handlers import (
+    MAX_LIBRARY_MATCHES,
+    find_in_library,
+    format_size,
+    is_authorized,
+    is_owner,
+    reply_in_chunks,
+    safe_edit,
+    which_one_text,
+)
 from app.handlers.prompts import send_search_prompt
 
 logger = logging.getLogger(__name__)
@@ -119,6 +128,12 @@ async def add_top_movie_and_reply(update: Update, context: ContextTypes.DEFAULT_
     tmdb_id = movie.get("tmdbId")
 
     if movie.get("id"):
+        # The lookup result is a partial resource — on Radarr v5 it has no
+        # size on disk — so build the panel from the library copy.
+        try:
+            movie = await radarr.get_movie(movie["id"]) or movie
+        except RuntimeError as e:
+            logger.error(f"add_top_movie_and_reply: {e}")
         text, keyboard = movie_panel(movie)
         await message.reply_text(f"ℹ️ Already in the library.\n\n{text}", reply_markup=keyboard)
         return
@@ -149,6 +164,9 @@ async def my_movies_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
 
     movies = await radarr.get_monitored_movies()
+    if movies is None:
+        await message.reply_text("❌ Couldn't reach Radarr. Try again in a minute.")
+        return
     if not movies:
         await message.reply_text("🎬 No movies in your Radarr library yet.")
         return
@@ -279,7 +297,9 @@ async def inline_query_radarr(update: Update, context: ContextTypes.DEFAULT_TYPE
                 )
             )
         
-        await query.answer(inline_results, cache_time=300)
+        # Short cache: each result's Add/Manage button reflects the library
+        # right now, and Telegram would replay a stale one to everyone.
+        await query.answer(inline_results, cache_time=5)
     
     except Exception as e:
         logger.error(f"Error in inline movie query: {e}")
@@ -299,6 +319,10 @@ def _movie_label(movie: dict) -> str:
 def _movie_size(movie: dict) -> int:
     # Radarr v5 moved sizeOnDisk under statistics; older versions have it top-level.
     return movie.get("sizeOnDisk") or (movie.get("statistics") or {}).get("sizeOnDisk") or 0
+
+
+# Remove-confirm and the two remove buttons.
+REMOVE_ACTIONS = ("rm", "rmk", "rmd")
 
 
 def movie_panel(movie: dict) -> tuple[str, InlineKeyboardMarkup]:
@@ -371,7 +395,12 @@ async def manage_movie_and_reply(update: Update, context: ContextTypes.DEFAULT_T
         await message.reply_text("❌ Radarr client not initialized.")
         return
 
-    matches = find_in_library(await radarr.get_monitored_movies(), query)
+    library = await radarr.get_monitored_movies()
+    if library is None:
+        await message.reply_text("❌ Couldn't reach Radarr. Try again in a minute.")
+        return
+
+    matches = find_in_library(query, library)
 
     if not matches:
         await message.reply_text(f"❌ No movie matching '{query}' in the library. Use /movie to add one.")
@@ -383,8 +412,8 @@ async def manage_movie_and_reply(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     keyboard = [[InlineKeyboardButton(f"🎬 {_movie_label(m)}", callback_data=f"mv:view:{m['id']}")]
-                for m in matches]
-    await message.reply_text("Which movie?", reply_markup=InlineKeyboardMarkup(keyboard))
+                for m in matches[:MAX_LIBRARY_MATCHES]]
+    await message.reply_text(which_one_text("Which movie?", len(matches)), reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def button_manage_movie(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -402,6 +431,12 @@ async def button_manage_movie(update: Update, context: ContextTypes.DEFAULT_TYPE
         movie_id = int(raw_id)
     except ValueError:
         await query.answer("❌ Invalid button data.", show_alert=True)
+        return
+
+    # Removing (and especially deleting files) is owners-only: an allowed group
+    # can manage the library, but not erase it.
+    if action in REMOVE_ACTIONS and not is_owner(update, context):
+        await query.answer("🔒 Only the bot's owners can remove movies.", show_alert=True)
         return
 
     radarr: RadarrClient = context.bot_data.get("radarr_client")
