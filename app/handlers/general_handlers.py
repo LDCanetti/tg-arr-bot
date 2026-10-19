@@ -26,6 +26,7 @@ BOT_COMMANDS = [
     BotCommand("help", "ℹ️ Show the command list"),
     BotCommand("start", "👋 Show the welcome message and buttons"),
     BotCommand("hide", "⌨️ Hide the button keyboard"),
+    BotCommand("version", "🏷️ Show which version is running"),
 ]
 
 # Telegram hard-caps a single message at 4096 characters.
@@ -173,7 +174,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "  /menu - Pick what to search from buttons, no typing\n"
         "  /start - Show the button keyboard under the text box\n"
         "  /hide - Put that keyboard away again\n"
-        "  /whatsnew - What changed in the latest update\n\n"
+        "  /whatsnew - What changed in the latest update\n"
+        "  /version - Which version is running\n\n"
         "🎬 **Radarr (Movies)**:\n"
         "  /movie <title> - Search for movies\n"
         "  /addmovie <title> - Add a movie to monitor\n"

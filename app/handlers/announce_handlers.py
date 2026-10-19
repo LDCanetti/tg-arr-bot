@@ -16,6 +16,12 @@ from app.handlers.general_handlers import is_authorized, is_owner
 
 logger = logging.getLogger(__name__)
 
+# Bump this whenever WHATS_NEW changes. Every running copy of the bot compares
+# it with the last one it told its owners about and, on startup, sends the new
+# notes once (see update_notice.py). Leave it alone for releases with nothing
+# worth announcing, and nobody is messaged.
+NOTES_VERSION = "2026.10.19"
+
 # Update this with each release worth telling people about.
 WHATS_NEW = (
     "🆕 What's new\n\n"

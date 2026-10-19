@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     # Logging verbosity (DEBUG, INFO, WARNING, ERROR). DEBUG logs message contents.
     log_level: str = "INFO"
 
+    # After an update with new release notes, privately message ALLOWED_USERS
+    # the notes once. Set false to keep quiet.
+    update_notices: bool = True
+
     class Config:
         env_file = ".env"
         case_sensitive = False
