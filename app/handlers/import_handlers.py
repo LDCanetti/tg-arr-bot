@@ -174,6 +174,34 @@ def alert_view(service: str, items: list[dict]) -> tuple[str, InlineKeyboardMark
 
 # --- Building the import --------------------------------------------------------
 
+# Only these are ever imported. Fake releases on public trackers ship malware
+# named like an episode ("Show S01E01 1080p.exe"), and Sonarr/Radarr list them
+# in Manual Import like any other file — "Import anyway" must never take one.
+VIDEO_EXTENSIONS = {
+    ".mkv", ".mk3d", ".mp4", ".m4v", ".avi", ".mov", ".wmv", ".asf", ".mpg", ".mpeg",
+    ".m2v", ".ts", ".m2ts", ".mts", ".webm", ".flv", ".ogv", ".ogm", ".vob", ".divx",
+    ".xvid", ".rm", ".rmvb", ".3gp", ".wtv", ".dvr-ms",
+}
+EXECUTABLE_EXTENSIONS = {
+    ".exe", ".scr", ".com", ".bat", ".cmd", ".msi", ".lnk", ".pif", ".ps1", ".vbs",
+    ".js", ".jar", ".apk", ".sh", ".dll", ".hta", ".cpl",
+}
+
+
+def _extension(candidate: dict) -> str:
+    name = (candidate.get("path") or candidate.get("relativePath") or "").lower()
+    dot = name.rfind(".")
+    return name[dot:] if dot > name.replace("\\", "/").rfind("/") else ""
+
+
+def _is_sample(candidate: dict) -> bool:
+    """A definite sample. Sonarr/Radarr reject those with exactly "Sample".
+
+    "Unable to determine if file is a sample" is different: the app couldn't
+    probe the file. The web UI lets you import those, so this does too.
+    """
+    return any((r.get("reason") or "").strip().casefold() == "sample" for r in candidate.get("rejections") or [])
+
 def plan_import(service: str, items: list[dict], candidates: list[dict]) -> tuple[list[dict], list[str]]:
     """Turn Manual Import candidates into ManualImport command files, plus a description.
 
@@ -189,10 +217,7 @@ def plan_import(service: str, items: list[dict], candidates: list[dict]) -> tupl
     download_id = first.get("downloadId")
     queue_episode_ids = [i["episodeId"] for i in items if i.get("episodeId")]
 
-    def is_sample(candidate: dict) -> bool:
-        return any("sample" in (r.get("reason") or "").lower() for r in candidate.get("rejections") or [])
-
-    real_files = [c for c in candidates if not is_sample(c)]
+    real_files = [c for c in candidates if _extension(c) in VIDEO_EXTENSIONS and not _is_sample(c)]
     files, lines = [], []
 
     for candidate in candidates[:_MAX_FILES]:
@@ -204,7 +229,14 @@ def plan_import(service: str, items: list[dict], candidates: list[dict]) -> tupl
         lines.append(f"📄 {name}")
         lines.append(f"    {_quality_name(quality)} · {format_size(candidate.get('size', 0))}")
 
-        if is_sample(candidate):
+        extension = _extension(candidate)
+        if extension in EXECUTABLE_EXTENSIONS:
+            lines.append(f"    🛑 Executable ({extension}), not a video — almost certainly malware. Won't be imported.")
+            continue
+        if extension not in VIDEO_EXTENSIONS:
+            lines.append(f"    🚫 Not a video file ({extension or 'no extension'}) — won't be imported")
+            continue
+        if _is_sample(candidate):
             lines.append("    ⏭️ Sample — won't be imported")
             continue
 
@@ -266,6 +298,9 @@ def review_view(service: str, items: list[dict], candidates: list[dict]) -> tupl
     if not candidates:
         text.append(f"{name} found no importable files in this download.")
     text += lines
+    if any(_extension(c) in EXECUTABLE_EXTENSIONS for c in candidates):
+        text += ["", "🛑 This download contains a program, not a video. Fake releases like this are a "
+                     "common way to spread malware — reject it, and don't open the file."]
     rows = []
     if files:
         text += ["", f"✅ Import anyway brings in {len(files)} file{'s' if len(files) != 1 else ''} "

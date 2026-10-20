@@ -131,7 +131,7 @@ reasons from the Activity tab. Buttons:
 
 | Button | What it does | API |
 |---|---|---|
-| 🔍 Review files | Lists the files in the download, what each was matched to, and its rejections. Samples are skipped. | `GET /api/v3/manualimport` |
+| 🔍 Review files | Lists the files in the download, what each was matched to, and its rejections. Only video files are ever imported; samples are skipped, and executables (a common malware trick in fake releases) are flagged. | `GET /api/v3/manualimport` |
 | ✅ Import anyway | Imports those files despite the warnings, like ticking them in the Manual Import dialog | `ManualImport` command |
 | 🚫 Reject & search again | Asks first, then removes it from the download client (deleting its files), blocklists the release and searches for another | `DELETE /api/v3/queue/{id}?blocklist=true` |
 | 🙈 Dismiss | Hides the alert; the download stays in the Activity tab | — |
