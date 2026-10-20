@@ -38,6 +38,7 @@ request media themselves, without any of them needing access to Sonarr or Radarr
 | `/manageanime [title]` | Same as `/manageshow`, looking in anime first |
 | `/imports` | Downloads Sonarr/Radarr are waiting to import by hand, with buttons to resolve them |
 | `/whatsnew` | Release notes for the latest update |
+| `/version` | Which build is running (date + commit) |
 | `/announce` | Owners only (`ALLOWED_USERS`): send the release notes to every allowed group and user. Not in the `/` list. |
 | `/start` | Welcome message plus the quick keyboard |
 | `/hide` | Remove the quick keyboard |
@@ -175,6 +176,28 @@ container nightly, so announcing automatically on startup would repeat every day
 The notes live in `WHATS_NEW` in `app/handlers/announce_handlers.py`; edit them
 for each release.
 
+### Update notices
+
+When you update the image and the new version comes with release notes, the
+bot privately sends them to every `ALLOWED_USERS` member **once**, the first
+time it starts — no command needed. Groups are left alone; use `/announce` for
+those. Set `UPDATE_NOTICES=false` to turn it off.
+
+To know what it has already announced without a volume, the bot keeps a small
+marker at the end of its **short description** (the line on its profile page),
+for example `Adds movies and shows to Sonarr/Radarr (tg-arr-bot 2026.10.19)`.
+Any short description you set in BotFather is kept; only the marker in brackets
+is added or updated. Watchtower recreating the container nightly doesn't
+re-send anything.
+
+Owners who have never pressed Start in a private chat with the bot can't be
+messaged — Telegram doesn't let bots start conversations.
+
+> **Maintainers:** a notice goes out only when `NOTES_VERSION` in
+> `app/handlers/announce_handlers.py` changes. Update `WHATS_NEW` and bump
+> `NOTES_VERSION` together for releases worth telling people about; leave both
+> alone for fixes, and nobody is messaged.
+
 ## Prerequisites
 
 - A working Sonarr (v3+ API) and Radarr instance the bot can reach over HTTP
@@ -217,6 +240,7 @@ cp .env.example .env
 | `SONARR_ROOT_SHOWS` | no | `/data/Plex/Shows` | Must be a registered root folder |
 | `SONARR_ROOT_ANIME` | no | `/data/Plex/Anime` | Must be a registered root folder |
 | `RADARR_ROOT_MOVIES` | no | `/data/Plex/Movies` | Must be a registered root folder |
+| `UPDATE_NOTICES` | no | `true` | Send owners the release notes once after an update. `false` to turn off. |
 | `IMPORT_CHECK_MINUTES` | no | `5` | How often to look for stuck imports. `0` turns the alerts off. |
 | `IMPORT_ALERT_CHATS` | no | empty | Comma-separated chats for those alerts. Empty means each `ALLOWED_USERS` member privately. |
 | `LOG_LEVEL` | no | `INFO` | `DEBUG` also logs message contents |
@@ -253,11 +277,11 @@ docker compose logs -f tg-bot
 A healthy start looks like:
 
 ```
-Bot started successfully!
+Bot started successfully! Version 2026.10.19-f078e43
 Allowed users: [123456789]
 Allowed group chats: [-1001234567890]
 Checking for stuck imports every 5 min; alerting [123456789]
-Published 17 commands to Telegram
+Published 18 commands to Telegram
 Application started
 ```
 
@@ -325,6 +349,7 @@ instead.
 tg-arr-bot/
 ├── app/
 │   ├── main.py                  # Entry point, handler registration
+│   ├── version.py               # Build version baked in by CI
 │   ├── config/settings.py       # Environment configuration
 │   ├── clients/
 │   │   ├── base.py              # Shared HTTP session and request helper
@@ -335,6 +360,7 @@ tg-arr-bot/
 │       ├── prompts.py           # "reply with a title" prompts and their routing
 │       ├── menu_handlers.py     # /menu, quick keyboard, unknown-command help
 │       ├── announce_handlers.py # /whatsnew, owner-only /announce broadcast
+│       ├── update_notice.py     # one-time release notes after an update, /version
 │       ├── import_handlers.py   # stuck-import alerts, /imports, accept/reject
 │       ├── sonarr_handlers.py   # /show, /anime, /myshows, /myanime, /manageshow, /manageanime
 │       └── radarr_handlers.py   # /movie, /addmovie, /mymovies, /managemovie
@@ -368,7 +394,7 @@ your profiles with `GET /api/v3/qualityprofile` and set the ID you want.
 Inline mode is off in BotFather (`/setinline`), or you aren't in `ALLOWED_USERS`.
 
 **Typing `/` shows no command list**
-The list is published on startup; check for "Published 17 commands" in the log.
+The list is published on startup; check for "Published 18 commands" in the log.
 Telegram caches it client-side, so reopen the chat.
 
 **The bot sees group messages it shouldn't**

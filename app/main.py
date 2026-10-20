@@ -20,6 +20,8 @@ from app.config.settings import settings
 from app.clients.sonarr import SonarrClient
 from app.clients.radarr import RadarrClient
 from app.handlers.general_handlers import BOT_COMMANDS, start_command, help_command
+from app.handlers.update_notice import notify_if_updated, version_command
+from app.version import APP_VERSION
 from app.handlers.announce_handlers import announce_command, button_announce, whats_new_command
 from app.handlers.import_handlers import button_import, check_imports, imports_command
 from app.handlers.menu_handlers import (
@@ -90,6 +92,9 @@ def main() -> None:
                 # A failure here is cosmetic — the commands still work when typed in full.
                 logger.error(f"Failed to publish command list: {e}")
 
+            if settings.update_notices:
+                await notify_if_updated(app.bot, settings.allowed_user_ids)
+
         # Create the Application
         application = (
             Application.builder()
@@ -111,6 +116,7 @@ def main() -> None:
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("menu", menu_command))
         application.add_handler(CommandHandler("hide", hide_keyboard_command))
+        application.add_handler(CommandHandler("version", version_command))
         application.add_handler(CommandHandler("whatsnew", whats_new_command))
         # Owner-only and left out of BOT_COMMANDS, so it isn't offered to everyone.
         application.add_handler(CommandHandler("announce", announce_command))
@@ -175,7 +181,7 @@ def main() -> None:
         # Add error handler to catch and log errors
         application.add_error_handler(error_handler)
         
-        logger.info("Bot started successfully!")
+        logger.info(f"Bot started successfully! Version {APP_VERSION}")
         logger.info(f"Allowed users: {settings.allowed_user_ids}")
         logger.info(f"Allowed group chats: {settings.allowed_chat_ids}")
         if settings.import_check_minutes > 0:
