@@ -137,7 +137,13 @@ reasons from the Activity tab. Buttons:
 
 A file that isn't matched to anything is imported only when the answer is
 unambiguous: one real file, mapped to the episode(s) or movie the queue grabbed
-it for. Anything else is left for the web UI, and the bot says so.
+it for. Anything else is left for the web UI, and the bot says so. Downloads
+Sonarr/Radarr couldn't match to any series or movie at all are alerted too,
+labelled by release name; those can only be rejected from Telegram.
+
+An alert only switches to "✅ Imported" once the download has actually left the
+queue. If the import fails, is still running, or Sonarr/Radarr finish without
+taking the file, the alert keeps its buttons.
 
 Searching again after a reject relies on Sonarr/Radarr's **Redownload Failed**
 setting, which is on by default.
@@ -147,6 +153,10 @@ Alerts go privately to every `ALLOWED_USERS` member, or to the chats in
 import, reject or dismiss. When a download is handled in the web UI instead,
 every copy of its alert is updated to say so. `/imports` lists everything
 waiting right now.
+
+At most 10 new alerts go out per check, a second apart, so a backlog doesn't
+trip Telegram's flood limits; the rest follow on later checks. An alert that
+couldn't be delivered is retried on the next check.
 
 The bot remembers what it already announced only until it restarts, so anything
 still stuck after a restart is announced once more.

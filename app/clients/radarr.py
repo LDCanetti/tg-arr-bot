@@ -11,7 +11,7 @@ class RadarrClient(ArrClient):
     """Radarr API client for movie management."""
 
     service = "Radarr"
-    QUEUE_INCLUDES = {"includeMovie": "true"}
+    QUEUE_INCLUDES = {"includeMovie": "true", "includeUnknownMovieItems": "true"}
 
     async def search_movies(self, query: str) -> List[Dict[str, Any]]:
         """Search for movies by title.
