@@ -15,6 +15,7 @@ request media themselves, without any of them needing access to Sonarr or Radarr
 - 🎌 **Anime** — added as `seriesType: Anime` (absolute episode numbering) in its own root folder
 - 🎛️ **Full monitoring choice** — all 11 of Sonarr's monitor options, not just "everything"
 - ⚙️ **Library management** — monitor/unmonitor movies, shows and individual seasons; remove with or without deleting files
+- 📥 **Stuck-import alerts** — get told when a download needs manual import, then import it anyway or reject it and search again
 - 👥 **Group access** — authorize a whole group chat, or individual users
 - 🔎 **Tap-to-search** — a button menu so members never have to learn the commands
 - ⚡ **Async** throughout, one reused HTTP session per service
@@ -35,6 +36,7 @@ request media themselves, without any of them needing access to Sonarr or Radarr
 | `/managemovie [title]` | Find a movie in the library: monitor, unmonitor, search or remove it |
 | `/manageshow [title]` | Same for a show, plus per-season monitoring |
 | `/manageanime [title]` | Same as `/manageshow`, looking in anime first |
+| `/imports` | Downloads Sonarr/Radarr are waiting to import by hand, with buttons to resolve them |
 | `/whatsnew` | Release notes for the latest update |
 | `/version` | Which build is running (date + commit) |
 | `/announce` | Owners only (`ALLOWED_USERS`): send the release notes to every allowed group and user. Not in the `/` list. |
@@ -115,6 +117,41 @@ monitor, unmonitor and search, but tapping Remove gets them "Only the bot's
 owners can remove…". Deleting files can't be undone, so it stays with the
 people you listed by ID.
 
+### Stuck imports
+
+Sometimes Sonarr or Radarr finishes a download but won't import it without a
+human: it's not an upgrade over the file you have, the episode couldn't be
+matched, the release was "matched to series by ID", and so on. The Activity tab
+shows it with an orange warning and it sits there until someone opens the Manual
+Import dialog. Nothing tells you.
+
+The bot checks both queues every `IMPORT_CHECK_MINUTES` (default 5) and sends
+one alert per stuck download: what it is, the release, quality, size, and the
+reasons from the Activity tab. Buttons:
+
+| Button | What it does | API |
+|---|---|---|
+| 🔍 Review files | Lists the files in the download, what each was matched to, and its rejections. Samples are skipped. | `GET /api/v3/manualimport` |
+| ✅ Import anyway | Imports those files despite the warnings, like ticking them in the Manual Import dialog | `ManualImport` command |
+| 🚫 Reject & search again | Asks first, then removes it from the download client (deleting its files), blocklists the release and searches for another | `DELETE /api/v3/queue/{id}?blocklist=true` |
+| 🙈 Dismiss | Hides the alert; the download stays in the Activity tab | — |
+
+A file that isn't matched to anything is imported only when the answer is
+unambiguous: one real file, mapped to the episode(s) or movie the queue grabbed
+it for. Anything else is left for the web UI, and the bot says so.
+
+Searching again after a reject relies on Sonarr/Radarr's **Redownload Failed**
+setting, which is on by default.
+
+Alerts go privately to every `ALLOWED_USERS` member, or to the chats in
+`IMPORT_ALERT_CHATS`. Anyone allowed can review, but only `ALLOWED_USERS` can
+import, reject or dismiss. When a download is handled in the web UI instead,
+every copy of its alert is updated to say so. `/imports` lists everything
+waiting right now.
+
+The bot remembers what it already announced only until it restarts, so anything
+still stuck after a restart is announced once more.
+
 ### Announcing an update
 
 After deploying a release, an owner sends `/announce`. The bot shows a preview of
@@ -194,6 +231,8 @@ cp .env.example .env
 | `SONARR_ROOT_ANIME` | no | `/data/Plex/Anime` | Must be a registered root folder |
 | `RADARR_ROOT_MOVIES` | no | `/data/Plex/Movies` | Must be a registered root folder |
 | `UPDATE_NOTICES` | no | `true` | Send owners the release notes once after an update. `false` to turn off. |
+| `IMPORT_CHECK_MINUTES` | no | `5` | How often to look for stuck imports. `0` turns the alerts off. |
+| `IMPORT_ALERT_CHATS` | no | empty | Comma-separated chats for those alerts. Empty means each `ALLOWED_USERS` member privately. |
 | `LOG_LEVEL` | no | `INFO` | `DEBUG` also logs message contents |
 
 Paths are as **Sonarr and Radarr** see them, not as the host sees them.
@@ -231,7 +270,8 @@ A healthy start looks like:
 Bot started successfully! Version 2026.10.19-f078e43
 Allowed users: [123456789]
 Allowed group chats: [-1001234567890]
-Published 17 commands to Telegram
+Checking for stuck imports every 5 min; alerting [123456789]
+Published 18 commands to Telegram
 Application started
 ```
 
@@ -311,6 +351,7 @@ tg-arr-bot/
 │       ├── menu_handlers.py     # /menu, quick keyboard, unknown-command help
 │       ├── announce_handlers.py # /whatsnew, owner-only /announce broadcast
 │       ├── update_notice.py     # one-time release notes after an update, /version
+│       ├── import_handlers.py   # stuck-import alerts, /imports, accept/reject
 │       ├── sonarr_handlers.py   # /show, /anime, /myshows, /myanime, /manageshow, /manageanime
 │       └── radarr_handlers.py   # /movie, /addmovie, /mymovies, /managemovie
 ├── docker-compose.yml           # Example standalone stack (see caveat above)
@@ -343,7 +384,7 @@ your profiles with `GET /api/v3/qualityprofile` and set the ID you want.
 Inline mode is off in BotFather (`/setinline`), or you aren't in `ALLOWED_USERS`.
 
 **Typing `/` shows no command list**
-The list is published on startup; check for "Published 17 commands" in the log.
+The list is published on startup; check for "Published 18 commands" in the log.
 Telegram caches it client-side, so reopen the chat.
 
 **The bot sees group messages it shouldn't**

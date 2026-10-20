@@ -22,6 +22,7 @@ BOT_COMMANDS = [
     BotCommand("managemovie", "⚙️ Monitor, unmonitor or remove a movie"),
     BotCommand("manageshow", "⚙️ Monitor seasons of, or remove, a TV show"),
     BotCommand("manageanime", "⚙️ Monitor seasons of, or remove, an anime"),
+    BotCommand("imports", "📥 Downloads waiting on a manual import"),
     BotCommand("whatsnew", "🆕 See what changed in the latest update"),
     BotCommand("help", "ℹ️ Show the command list"),
     BotCommand("start", "👋 Show the welcome message and buttons"),
@@ -192,6 +193,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "  /manageshow <title> - Same for a show, plus per-season monitoring\n"
         "  /manageanime <title> - Same for an anime\n"
         "  Removing (owners only) asks whether to also delete the files from the drive.\n\n"
+        "📥 **Stuck downloads**:\n"
+        "  /imports - Downloads Sonarr/Radarr won't import without help\n"
+        "  The bot also alerts the owners when one appears, with buttons to\n"
+        "  review the files, import anyway, or reject and search again.\n\n"
         "💡 **Inline Queries** (use in any chat):\n"
         "  @YourBotName movie <title> - Search movies\n"
         "  @YourBotName show <title> - Search TV shows\n"

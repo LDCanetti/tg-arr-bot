@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     # quality, then upgrade toward the profile cutoff. Must exist in Sonarr/Radarr.
     quality_profile_id: int = 1
 
+    # How often (minutes) to check Sonarr/Radarr for downloads stuck waiting on
+    # manual import. 0 turns the alerts off.
+    import_check_minutes: int = 5
+    # Comma-separated chats that get those alerts. Empty means every ALLOWED_USERS
+    # member, privately. Only ALLOWED_USERS can act on them either way.
+    import_alert_chats: str = ""
+
     # Logging verbosity (DEBUG, INFO, WARNING, ERROR). DEBUG logs message contents.
     log_level: str = "INFO"
 
@@ -49,6 +56,12 @@ class Settings(BaseSettings):
     def allowed_chat_ids(self) -> list[int]:
         """Parse allowed group chats from comma-separated string."""
         return [int(cid.strip()) for cid in self.allowed_chats.split(",") if cid.strip()]
+
+    @property
+    def import_alert_chat_ids(self) -> list[int]:
+        """Where import alerts go: the configured chats, or else the owners privately."""
+        chats = [int(cid.strip()) for cid in self.import_alert_chats.split(",") if cid.strip()]
+        return chats or self.allowed_user_ids
 
 
 settings = Settings()
